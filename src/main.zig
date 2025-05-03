@@ -14,10 +14,19 @@ fn repl() !void {
         const optional_str = try stdin.readUntilDelimiterOrEof(line[0..], '\n');
         // when it's null, it means we received kill signal like SIGINT
         if (optional_str) |str| {
-            try stdout.print("{s}\n", .{str});
+            try run(str);
         } else {
             break;
         }
+    }
+}
+
+fn run(source: []const u8) !void {
+    var scanner = try Scanner.init(source);
+    const tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+    for (tokens.items) |token| {
+        std.debug.print("Token: {any}\n", .{token.type});
     }
 }
 
@@ -71,4 +80,5 @@ test "fuzz example" {
 }
 
 const std = @import("std");
+const Scanner = @import("./scanner.zig").Scanner;
 const process = std.process;
