@@ -4,10 +4,21 @@ fn runFile(path: []const u8) !void {
     std.process.exit(0);
 }
 
-fn runPrompt() !void {
-    std.debug.print("Running prompt\n", .{});
-    // signal command is valid
-    std.process.exit(0);
+fn repl() !void {
+    const stdout = std.io.getStdOut().writer();
+    const stdin = std.io.getStdIn().reader();
+
+    var line: [256]u8 = undefined;
+    while (true) {
+        try stdout.print("> ", .{});
+        const optional_str = try stdin.readUntilDelimiterOrEof(line[0..], '\n');
+        // when it's null, it means we received kill signal like SIGINT
+        if (optional_str) |str| {
+            try stdout.print("{s}\n", .{str});
+        } else {
+            break;
+        }
+    }
 }
 
 pub fn main() !void {
@@ -29,7 +40,7 @@ pub fn main() !void {
         std.debug.print("args: {s}\n", .{args});
         try runFile(args[0]);
     } else {
-        try runPrompt();
+        try repl();
     }
 
     // stdout is for the actual output of your application, for example if you
