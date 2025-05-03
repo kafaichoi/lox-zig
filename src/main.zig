@@ -1,5 +1,14 @@
-// This import is already being defined later in the file,
-// the duplicate definition was removed to fix the error
+fn runFile(path: []const u8) !void {
+    std.debug.print("Running script: {s}\n", .{path});
+    // signal command is valid
+    std.process.exit(0);
+}
+
+fn runPrompt() !void {
+    std.debug.print("Running prompt\n", .{});
+    // signal command is valid
+    std.process.exit(0);
+}
 
 pub fn main() !void {
     // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
@@ -10,10 +19,17 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
-    if (args.len > 1) {
+    // there will be always at least one element in args
+    // which is the executable path
+    if (args.len > 2) {
         try stdout.print("Usage: jlox [script]\n", .{});
         // signal command is invalid
-        std.process.exit(66);
+        std.process.exit(64);
+    } else if (args.len == 2) {
+        std.debug.print("args: {s}\n", .{args});
+        try runFile(args[0]);
+    } else {
+        try runPrompt();
     }
 
     // stdout is for the actual output of your application, for example if you
