@@ -86,33 +86,61 @@ pub const Scanner = struct {
             try tokens.append(token);
         }
 
-        try tokens.append(Token.init(TokenType.EOF, "", self.line));
         return tokens;
     }
 
     pub fn scanToken(self: *Scanner) Token {
+        self.skipWhitespace();
+
+        if (self.isAtEnd()) return self.createToken(TokenType.EOF);
         const c = self.advance();
 
         const token = switch (c) {
-            '(' => self.addToken(TokenType.LEFT_PAREN),
-            ')' => self.addToken(TokenType.RIGHT_PARENS),
-            '{' => self.addToken(TokenType.LEFT_BRACE),
-            '}' => self.addToken(TokenType.RIGHT_BRACE),
-            ',' => self.addToken(TokenType.COMMA),
-            '.' => self.addToken(TokenType.DOT),
-            '-' => self.addToken(TokenType.MINUS),
-            '+' => self.addToken(TokenType.PLUS),
-            ';' => self.addToken(TokenType.SEMICOLON),
-            '*' => self.addToken(TokenType.STAR),
-            '!' => self.addToken(TokenType.BANG),
-            '=' => self.addToken(TokenType.EQUAL),
-            else => self.addToken(TokenType.ERROR),
+            '(' => self.createToken(TokenType.LEFT_PAREN),
+            ')' => self.createToken(TokenType.RIGHT_PARENS),
+            '{' => self.createToken(TokenType.LEFT_BRACE),
+            '}' => self.createToken(TokenType.RIGHT_BRACE),
+            ',' => self.createToken(TokenType.COMMA),
+            '.' => self.createToken(TokenType.DOT),
+            '-' => self.createToken(TokenType.MINUS),
+            '+' => self.createToken(TokenType.PLUS),
+            ';' => self.createToken(TokenType.SEMICOLON),
+            '*' => self.createToken(TokenType.STAR),
+            '!' => if (self.match('=')) self.createToken(TokenType.BANG_EQUAL) else self.createToken(TokenType.BANG),
+            '=' => if (self.match('=')) self.createToken(TokenType.EQUAL_EQUAL) else self.createToken(TokenType.EQUAL),
+            '<' => if (self.match('=')) self.createToken(TokenType.LESS_EQUAL) else self.createToken(TokenType.LESS),
+            '>' => if (self.match('=')) self.createToken(TokenType.GREATER_EQUAL) else self.createToken(TokenType.GREATER),
+            // comments are handled in skipWhitespace
+            '/' => self.createToken(TokenType.SLASH),
+            else => self.createToken(TokenType.ERROR),
         };
 
         return token;
     }
 
-    fn addToken(self: *Scanner, token_type: TokenType) Token {
+    fn skipWhitespace(self: *Scanner) void {
+        while (!self.isAtEnd()) {
+            const c = self.peek();
+            switch (c) {
+                ' ', '\r', '\t' => _ = self.advance(),
+                '\n' => {
+                    self.line += 1;
+                    _ = self.advance();
+                },
+                '/' => {
+                    if (self.match('/')) {
+                        while (!self.isAtEnd() and self.peek() != '\n')
+                            _ = self.advance();
+                    } else {
+                        return;
+                    }
+                },
+                else => break,
+            }
+        }
+    }
+
+    fn createToken(self: *Scanner, token_type: TokenType) Token {
         const lexeme = self.source[self.start..self.curr];
         return Token.init(token_type, lexeme, self.line);
     }
@@ -121,6 +149,10 @@ pub const Scanner = struct {
         const c = self.source[self.curr];
         self.curr += 1;
         return c;
+    }
+
+    fn peek(self: *Scanner) u8 {
+        return self.source[self.curr];
     }
 
     fn match(self: *Scanner, expected: u8) bool {
@@ -134,3 +166,17 @@ pub const Scanner = struct {
         return self.curr >= self.source.len;
     }
 };
+
+const testing = std.testing;
+
+test "scanner handles comments" {
+    const source = "// this is a comment";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 1), tokens.items.len);
+    std.debug.print("token: {any}\n", .{tokens.items[0]});
+    try testing.expect(std.meta.eql(Token.init(TokenType.EOF, "// this is a comment", 1), tokens.items[0]));
+}
