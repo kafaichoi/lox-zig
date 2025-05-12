@@ -79,11 +79,11 @@ pub const Scanner = struct {
     pub fn scanTokens(self: *Scanner) !std.ArrayList(Token) {
         var tokens = std.ArrayList(Token).init(std.heap.page_allocator);
 
-        while (!self.isAtEnd()) {
+        while (true) {
             // we start at the beginning of the current token
-            self.start = self.curr;
             const token = self.scanToken();
             try tokens.append(token);
+            if (token.type == TokenType.EOF) break;
         }
 
         return tokens;
@@ -92,7 +92,13 @@ pub const Scanner = struct {
     pub fn scanToken(self: *Scanner) Token {
         self.skipWhitespace();
 
-        if (self.isAtEnd()) return self.createToken(TokenType.EOF);
+        self.start = self.curr;
+        std.debug.print("finsihed skip whitespace\n", .{});
+        if (self.isAtEnd()) {
+            std.debug.print("EOF\n", .{});
+            return self.createToken(TokenType.EOF);
+        }
+
         const c = self.advance();
 
         const token = switch (c) {
@@ -170,13 +176,43 @@ pub const Scanner = struct {
 const testing = std.testing;
 
 test "scanner handles comments" {
-    const source = "// this is a comment";
+    const source = "//";
 
     var scanner = try Scanner.init(source);
     var tokens = try scanner.scanTokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 1), tokens.items.len);
-    std.debug.print("token: {any}\n", .{tokens.items[0]});
-    try testing.expect(std.meta.eql(Token.init(TokenType.EOF, "// this is a comment", 1), tokens.items[0]));
+    std.debug.print("token: {s}\n", .{tokens.items[0].lexeme});
+
+    try testing.expectEqual(TokenType.EOF, tokens.items[0].type);
+    try testing.expectEqualStrings("", tokens.items[0].lexeme);
+    try testing.expectEqual(@as(usize, 1), tokens.items[0].line);
+}
+
+test "handle grouping stuff" {
+    const source = "(( )){}";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 7), tokens.items.len);
+    try testing.expectEqual(TokenType.LEFT_PAREN, tokens.items[0].type);
+    try testing.expectEqualStrings("(", tokens.items[0].lexeme);
+    try testing.expectEqual(TokenType.LEFT_PAREN, tokens.items[1].type);
+    try testing.expectEqualStrings("(", tokens.items[1].lexeme);
+    try testing.expectEqual(TokenType.RIGHT_PARENS, tokens.items[2].type);
+    try testing.expectEqualStrings(")", tokens.items[2].lexeme);
+    try testing.expectEqual(TokenType.RIGHT_PARENS, tokens.items[3].type);
+    try testing.expectEqualStrings(")", tokens.items[3].lexeme);
+    try testing.expectEqual(TokenType.LEFT_BRACE, tokens.items[4].type);
+    try testing.expectEqualStrings("{", tokens.items[4].lexeme);
+    try testing.expectEqual(TokenType.RIGHT_BRACE, tokens.items[5].type);
+    try testing.expectEqualStrings("}", tokens.items[5].lexeme);
+    try testing.expectEqual(TokenType.EOF, tokens.items[6].type);
+    try testing.expectEqualStrings("", tokens.items[6].lexeme);
+    for (tokens.items) |token| {
+        try testing.expectEqual(token.line, 1);
+    }
 }

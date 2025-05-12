@@ -26,7 +26,7 @@ fn run(source: []const u8) !void {
     const tokens = try scanner.scanTokens();
     defer tokens.deinit();
     for (tokens.items) |token| {
-        std.debug.print("Token: {any}\n", .{token.type});
+        std.debug.print("TokenType: {any}, Lexeme: {s}, Line: {d}\n", .{ token.type, token.lexeme, token.line });
     }
 }
 
