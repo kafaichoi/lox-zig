@@ -93,7 +93,6 @@ pub const Scanner = struct {
         self.skipWhitespace();
 
         self.start = self.curr;
-        std.debug.print("finsihed skip whitespace\n", .{});
         if (self.isAtEnd()) {
             std.debug.print("EOF\n", .{});
             return self.createToken(TokenType.EOF);
@@ -118,6 +117,7 @@ pub const Scanner = struct {
             '>' => if (self.match('=')) self.createToken(TokenType.GREATER_EQUAL) else self.createToken(TokenType.GREATER),
             // comments are handled in skipWhitespace
             '/' => self.createToken(TokenType.SLASH),
+            '"' => self.string(),
             else => self.createToken(TokenType.ERROR),
         };
 
@@ -144,6 +144,23 @@ pub const Scanner = struct {
                 else => break,
             }
         }
+    }
+
+    fn string(self: *Scanner) Token {
+        while (self.peek() != '"' and !self.isAtEnd()) {
+            if (self.peek() == '\n') self.line += 1;
+            _ = self.advance();
+        }
+
+        if (self.isAtEnd()) {
+            std.debug.print("Unterminated string.\n", .{});
+            return self.createToken(TokenType.ERROR);
+        }
+
+        // closing it
+        _ = self.advance();
+
+        return self.createToken(TokenType.STRING);
     }
 
     fn createToken(self: *Scanner, token_type: TokenType) Token {
@@ -215,4 +232,32 @@ test "handle grouping stuff" {
     for (tokens.items) |token| {
         try testing.expectEqual(token.line, 1);
     }
+}
+
+test "scanner handles single-line string" {
+    const source = "\"hello\"";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 2), tokens.items.len);
+    try testing.expectEqual(TokenType.STRING, tokens.items[0].type);
+    try testing.expectEqualStrings("\"hello\"", tokens.items[0].lexeme);
+    try testing.expectEqual(TokenType.EOF, tokens.items[1].type);
+    try testing.expectEqualStrings("", tokens.items[1].lexeme);
+}
+
+test "scanner handles multi-line string" {
+    const source = "\"hello\nworld\"";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 2), tokens.items.len);
+    try testing.expectEqual(TokenType.STRING, tokens.items[0].type);
+    try testing.expectEqualStrings("\"hello\nworld\"", tokens.items[0].lexeme);
+    try testing.expectEqual(TokenType.EOF, tokens.items[1].type);
+    try testing.expectEqualStrings("", tokens.items[1].lexeme);
 }
