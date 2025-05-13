@@ -51,6 +51,25 @@ pub const TokenType = enum {
     ERROR,
 };
 
+const keywords = std.StaticStringMap(TokenType).initComptime(.{
+    .{ "and", .AND },
+    .{ "class", .CLASS },
+    .{ "else", .ELSE },
+    .{ "false", .FALSE },
+    .{ "for", .FOR },
+    .{ "fun", .FUN },
+    .{ "if", .IF },
+    .{ "nil", .NIL },
+    .{ "or", .OR },
+    .{ "print", .PRINT },
+    .{ "return", .RETURN },
+    .{ "super", .SUPER },
+    .{ "this", .THIS },
+    .{ "true", .TRUE },
+    .{ "var", .VAR },
+    .{ "while", .WHILE },
+});
+
 pub const TokenLiteral = union(enum) {
     none: void,
     double: f64,
@@ -209,7 +228,10 @@ pub const Scanner = struct {
     fn identifier(self: *Scanner) Token {
         while (is_alphanumeric(self.peek()) or self.peek() == '_') _ = self.advance();
 
-        return self.createToken(TokenType.IDENTIFIER, .{ .none = {} });
+        const text = self.source[self.start..self.curr];
+        const token_type = keywords.get(text) orelse TokenType.IDENTIFIER;
+
+        return self.createToken(token_type, .{ .none = {} });
     }
 
     fn createToken(self: *Scanner, token_type: TokenType, literal: TokenLiteral) Token {
@@ -349,4 +371,32 @@ test "scanner handles identifiers" {
     try testing.expectEqualStrings("A1c", tokens.items[2].lexeme);
     try testing.expectEqual(TokenType.EOF, tokens.items[3].type);
     try testing.expectEqualStrings("", tokens.items[3].lexeme);
+}
+
+test "scanner handles keywords" {
+    const source = "and class else false for fun if nil or print return super this true var while";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 17), tokens.items.len);
+    try testing.expectEqual(TokenType.AND, tokens.items[0].type);
+    try testing.expectEqual(TokenType.CLASS, tokens.items[1].type);
+    try testing.expectEqual(TokenType.ELSE, tokens.items[2].type);
+    try testing.expectEqual(TokenType.FALSE, tokens.items[3].type);
+    try testing.expectEqual(TokenType.FOR, tokens.items[4].type);
+    try testing.expectEqual(TokenType.FUN, tokens.items[5].type);
+    try testing.expectEqual(TokenType.IF, tokens.items[6].type);
+    try testing.expectEqual(TokenType.NIL, tokens.items[7].type);
+    try testing.expectEqual(TokenType.OR, tokens.items[8].type);
+    try testing.expectEqual(TokenType.PRINT, tokens.items[9].type);
+    try testing.expectEqual(TokenType.RETURN, tokens.items[10].type);
+    try testing.expectEqual(TokenType.SUPER, tokens.items[11].type);
+    try testing.expectEqual(TokenType.THIS, tokens.items[12].type);
+    try testing.expectEqual(TokenType.TRUE, tokens.items[13].type);
+    try testing.expectEqual(TokenType.VAR, tokens.items[14].type);
+    try testing.expectEqual(TokenType.WHILE, tokens.items[15].type);
+    try testing.expectEqual(TokenType.EOF, tokens.items[16].type);
+    try testing.expectEqualStrings("", tokens.items[16].lexeme);
 }
