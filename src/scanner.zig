@@ -51,15 +51,26 @@ pub const TokenType = enum {
     ERROR,
 };
 
+pub const TokenLiteral = union(enum) {
+    none: void,
+    double: f64,
+    string: []const u8,
+};
+
 pub const Token = struct {
     type: TokenType,
     lexeme: []const u8,
+    literal: TokenLiteral,
     line: usize,
 
-    pub fn init(token_type: TokenType, lexeme: []const u8, line: usize) Token {
-        return Token{ .type = token_type, .lexeme = lexeme, .line = line };
+    pub fn init(token_type: TokenType, lexeme: []const u8, literal: TokenLiteral, line: usize) Token {
+        return Token{ .type = token_type, .lexeme = lexeme, .literal = literal, .line = line };
     }
 };
+
+fn is_digit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
 
 pub const Scanner = struct {
     source: []const u8,
@@ -95,30 +106,35 @@ pub const Scanner = struct {
         self.start = self.curr;
         if (self.isAtEnd()) {
             std.debug.print("EOF\n", .{});
-            return self.createToken(TokenType.EOF);
+            return self.createToken(TokenType.EOF, .{ .none = {} });
         }
 
         const c = self.advance();
 
         const token = switch (c) {
-            '(' => self.createToken(TokenType.LEFT_PAREN),
-            ')' => self.createToken(TokenType.RIGHT_PARENS),
-            '{' => self.createToken(TokenType.LEFT_BRACE),
-            '}' => self.createToken(TokenType.RIGHT_BRACE),
-            ',' => self.createToken(TokenType.COMMA),
-            '.' => self.createToken(TokenType.DOT),
-            '-' => self.createToken(TokenType.MINUS),
-            '+' => self.createToken(TokenType.PLUS),
-            ';' => self.createToken(TokenType.SEMICOLON),
-            '*' => self.createToken(TokenType.STAR),
-            '!' => if (self.match('=')) self.createToken(TokenType.BANG_EQUAL) else self.createToken(TokenType.BANG),
-            '=' => if (self.match('=')) self.createToken(TokenType.EQUAL_EQUAL) else self.createToken(TokenType.EQUAL),
-            '<' => if (self.match('=')) self.createToken(TokenType.LESS_EQUAL) else self.createToken(TokenType.LESS),
-            '>' => if (self.match('=')) self.createToken(TokenType.GREATER_EQUAL) else self.createToken(TokenType.GREATER),
+            '(' => self.createToken(TokenType.LEFT_PAREN, .{ .none = {} }),
+            ')' => self.createToken(TokenType.RIGHT_PARENS, .{ .none = {} }),
+            '{' => self.createToken(TokenType.LEFT_BRACE, .{ .none = {} }),
+            '}' => self.createToken(TokenType.RIGHT_BRACE, .{ .none = {} }),
+            ',' => self.createToken(TokenType.COMMA, .{ .none = {} }),
+            '.' => self.createToken(TokenType.DOT, .{ .none = {} }),
+            '-' => self.createToken(TokenType.MINUS, .{ .none = {} }),
+            '+' => self.createToken(TokenType.PLUS, .{ .none = {} }),
+            ';' => self.createToken(TokenType.SEMICOLON, .{ .none = {} }),
+            '*' => self.createToken(TokenType.STAR, .{ .none = {} }),
+            '!' => if (self.match('=')) self.createToken(TokenType.BANG_EQUAL, .{ .none = {} }) else self.createToken(TokenType.BANG, .{ .none = {} }),
+            '=' => if (self.match('=')) self.createToken(TokenType.EQUAL_EQUAL, .{ .none = {} }) else self.createToken(TokenType.EQUAL, .{ .none = {} }),
+            '<' => if (self.match('=')) self.createToken(TokenType.LESS_EQUAL, .{ .none = {} }) else self.createToken(TokenType.LESS, .{ .none = {} }),
+            '>' => if (self.match('=')) self.createToken(TokenType.GREATER_EQUAL, .{ .none = {} }) else self.createToken(TokenType.GREATER, .{ .none = {} }),
             // comments are handled in skipWhitespace
-            '/' => self.createToken(TokenType.SLASH),
+            '/' => self.createToken(TokenType.SLASH, .{ .none = {} }),
             '"' => self.string(),
-            else => self.createToken(TokenType.ERROR),
+            else => {
+                if (is_digit(c)) {
+                    return self.number();
+                }
+                return self.createToken(TokenType.ERROR, .{ .none = {} });
+            },
         };
 
         return token;
@@ -154,18 +170,34 @@ pub const Scanner = struct {
 
         if (self.isAtEnd()) {
             std.debug.print("Unterminated string.\n", .{});
-            return self.createToken(TokenType.ERROR);
+            return self.createToken(TokenType.ERROR, .{ .none = {} });
         }
 
         // closing it
         _ = self.advance();
 
-        return self.createToken(TokenType.STRING);
+        const literal = self.source[self.start + 1 .. self.curr - 1];
+        return self.createToken(TokenType.STRING, .{ .string = literal });
     }
 
-    fn createToken(self: *Scanner, token_type: TokenType) Token {
+    fn number(self: *Scanner) Token {
+        while (is_digit(self.peek())) _ = self.advance();
+
+        // look for a fractional part
+        if (self.peek() == '.' and is_digit(self.peek_next())) {
+            // consume the '.'
+            _ = self.advance();
+            while (is_digit(self.peek())) _ = self.advance();
+        }
+
+        const literal = self.source[self.start..self.curr];
+        const float_value = std.fmt.parseFloat(f64, literal) catch 0;
+        return self.createToken(TokenType.NUMBER, .{ .double = float_value });
+    }
+
+    fn createToken(self: *Scanner, token_type: TokenType, literal: TokenLiteral) Token {
         const lexeme = self.source[self.start..self.curr];
-        return Token.init(token_type, lexeme, self.line);
+        return Token.init(token_type, lexeme, literal, self.line);
     }
 
     fn advance(self: *Scanner) u8 {
@@ -175,7 +207,13 @@ pub const Scanner = struct {
     }
 
     fn peek(self: *Scanner) u8 {
+        if (self.isAtEnd()) return 0;
         return self.source[self.curr];
+    }
+
+    fn peek_next(self: *Scanner) u8 {
+        if (self.isAtEnd()) return 0;
+        return self.source[self.curr + 1];
     }
 
     fn match(self: *Scanner, expected: u8) bool {
@@ -260,4 +298,20 @@ test "scanner handles multi-line string" {
     try testing.expectEqualStrings("\"hello\nworld\"", tokens.items[0].lexeme);
     try testing.expectEqual(TokenType.EOF, tokens.items[1].type);
     try testing.expectEqualStrings("", tokens.items[1].lexeme);
+}
+
+test "scanner handles decimal numbers" {
+    const source = "123.456 19";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 3), tokens.items.len);
+    try testing.expectEqual(TokenType.NUMBER, tokens.items[0].type);
+    try testing.expectEqualStrings("123.456", tokens.items[0].lexeme);
+    try testing.expectEqual(TokenType.NUMBER, tokens.items[1].type);
+    try testing.expectEqualStrings("19", tokens.items[1].lexeme);
+    try testing.expectEqual(TokenType.EOF, tokens.items[2].type);
+    try testing.expectEqualStrings("", tokens.items[2].lexeme);
 }
