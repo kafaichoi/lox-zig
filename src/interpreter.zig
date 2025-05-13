@@ -104,13 +104,17 @@ pub const Interpreter = struct {
                 }
 
                 if (left == .string and right == .string) {
-                    // String concatenation would need a memory allocator
-                    // In real implementation, we would need to properly handle memory for string concatenation
-                    self.runtime_error = RuntimeError{
-                        .token = expr.operator,
-                        .message = "String concatenation not yet implemented in this version.",
+                    const len = left.string.len + right.string.len;
+                    var result = std.heap.page_allocator.alloc(u8, len) catch {
+                        self.runtime_error = RuntimeError{
+                            .token = expr.operator,
+                            .message = "Out of memory.",
+                        };
+                        return Value{ .nil = {} };
                     };
-                    return Value{ .nil = {} };
+                    @memcpy(result[0..left.string.len], left.string);
+                    @memcpy(result[left.string.len..], right.string);
+                    return Value{ .string = result };
                 }
 
                 self.runtime_error = RuntimeError{
