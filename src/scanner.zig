@@ -72,6 +72,14 @@ fn is_digit(c: u8) bool {
     return c >= '0' and c <= '9';
 }
 
+fn is_alpha(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
+}
+
+fn is_alphanumeric(c: u8) bool {
+    return is_alpha(c) or is_digit(c);
+}
+
 pub const Scanner = struct {
     source: []const u8,
     start: usize,
@@ -133,6 +141,9 @@ pub const Scanner = struct {
                 if (is_digit(c)) {
                     return self.number();
                 }
+                if (is_alpha(c)) {
+                    return self.identifier();
+                }
                 return self.createToken(TokenType.ERROR, .{ .none = {} });
             },
         };
@@ -193,6 +204,12 @@ pub const Scanner = struct {
         const literal = self.source[self.start..self.curr];
         const float_value = std.fmt.parseFloat(f64, literal) catch 0;
         return self.createToken(TokenType.NUMBER, .{ .double = float_value });
+    }
+
+    fn identifier(self: *Scanner) Token {
+        while (is_alphanumeric(self.peek()) or self.peek() == '_') _ = self.advance();
+
+        return self.createToken(TokenType.IDENTIFIER, .{ .none = {} });
     }
 
     fn createToken(self: *Scanner, token_type: TokenType, literal: TokenLiteral) Token {
@@ -314,4 +331,22 @@ test "scanner handles decimal numbers" {
     try testing.expectEqualStrings("19", tokens.items[1].lexeme);
     try testing.expectEqual(TokenType.EOF, tokens.items[2].type);
     try testing.expectEqualStrings("", tokens.items[2].lexeme);
+}
+
+test "scanner handles identifiers" {
+    const source = "camelCase underscore_case A1c";
+
+    var scanner = try Scanner.init(source);
+    var tokens = try scanner.scanTokens();
+    defer tokens.deinit();
+
+    try testing.expectEqual(@as(usize, 4), tokens.items.len);
+    try testing.expectEqual(TokenType.IDENTIFIER, tokens.items[0].type);
+    try testing.expectEqualStrings("camelCase", tokens.items[0].lexeme);
+    try testing.expectEqual(TokenType.IDENTIFIER, tokens.items[1].type);
+    try testing.expectEqualStrings("underscore_case", tokens.items[1].lexeme);
+    try testing.expectEqual(TokenType.IDENTIFIER, tokens.items[2].type);
+    try testing.expectEqualStrings("A1c", tokens.items[2].lexeme);
+    try testing.expectEqual(TokenType.EOF, tokens.items[3].type);
+    try testing.expectEqualStrings("", tokens.items[3].lexeme);
 }
