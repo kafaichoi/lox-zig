@@ -1,4 +1,4 @@
-fn runFile(path: []const u8) !void {
+fn run_file(path: []const u8) !void {
     std.debug.print("Running script: {s}\n", .{path});
     // signal command is valid
     std.process.exit(0);
@@ -23,7 +23,7 @@ fn repl() !void {
 
 fn run(source: []const u8) !void {
     var scanner = try Scanner.init(source);
-    const tokens = try scanner.scanTokens();
+    const tokens = try scanner.scan_tokens();
     defer tokens.deinit();
     for (tokens.items) |token| {
         std.debug.print("TokenType: {any}, Lexeme: {s}, Line: {d}\n", .{ token.type, token.lexeme, token.line });
@@ -47,7 +47,7 @@ pub fn main() !void {
         std.process.exit(64);
     } else if (args.len == 2) {
         std.debug.print("args: {s}\n", .{args});
-        try runFile(args[0]);
+        try run_file(args[0]);
     } else {
         try repl();
     }

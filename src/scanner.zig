@@ -114,12 +114,12 @@ pub const Scanner = struct {
         };
     }
 
-    pub fn scanTokens(self: *Scanner) !std.ArrayList(Token) {
+    pub fn scan_tokens(self: *Scanner) !std.ArrayList(Token) {
         var tokens = std.ArrayList(Token).init(std.heap.page_allocator);
 
         while (true) {
             // we start at the beginning of the current token
-            const token = self.scanToken();
+            const token = self.scan_token();
             try tokens.append(token);
             if (token.type == TokenType.EOF) break;
         }
@@ -127,34 +127,34 @@ pub const Scanner = struct {
         return tokens;
     }
 
-    pub fn scanToken(self: *Scanner) Token {
-        self.skipWhitespace();
+    pub fn scan_token(self: *Scanner) Token {
+        self.skip_whitespace();
 
         self.start = self.curr;
-        if (self.isAtEnd()) {
+        if (self.is_at_end()) {
             std.debug.print("EOF\n", .{});
-            return self.createToken(TokenType.EOF, .{ .none = {} });
+            return self.create_token(TokenType.EOF, .{ .none = {} });
         }
 
         const c = self.advance();
 
         const token = switch (c) {
-            '(' => self.createToken(TokenType.LEFT_PAREN, .{ .none = {} }),
-            ')' => self.createToken(TokenType.RIGHT_PARENS, .{ .none = {} }),
-            '{' => self.createToken(TokenType.LEFT_BRACE, .{ .none = {} }),
-            '}' => self.createToken(TokenType.RIGHT_BRACE, .{ .none = {} }),
-            ',' => self.createToken(TokenType.COMMA, .{ .none = {} }),
-            '.' => self.createToken(TokenType.DOT, .{ .none = {} }),
-            '-' => self.createToken(TokenType.MINUS, .{ .none = {} }),
-            '+' => self.createToken(TokenType.PLUS, .{ .none = {} }),
-            ';' => self.createToken(TokenType.SEMICOLON, .{ .none = {} }),
-            '*' => self.createToken(TokenType.STAR, .{ .none = {} }),
-            '!' => if (self.match('=')) self.createToken(TokenType.BANG_EQUAL, .{ .none = {} }) else self.createToken(TokenType.BANG, .{ .none = {} }),
-            '=' => if (self.match('=')) self.createToken(TokenType.EQUAL_EQUAL, .{ .none = {} }) else self.createToken(TokenType.EQUAL, .{ .none = {} }),
-            '<' => if (self.match('=')) self.createToken(TokenType.LESS_EQUAL, .{ .none = {} }) else self.createToken(TokenType.LESS, .{ .none = {} }),
-            '>' => if (self.match('=')) self.createToken(TokenType.GREATER_EQUAL, .{ .none = {} }) else self.createToken(TokenType.GREATER, .{ .none = {} }),
-            // comments are handled in skipWhitespace
-            '/' => self.createToken(TokenType.SLASH, .{ .none = {} }),
+            '(' => self.create_token(TokenType.LEFT_PAREN, .{ .none = {} }),
+            ')' => self.create_token(TokenType.RIGHT_PARENS, .{ .none = {} }),
+            '{' => self.create_token(TokenType.LEFT_BRACE, .{ .none = {} }),
+            '}' => self.create_token(TokenType.RIGHT_BRACE, .{ .none = {} }),
+            ',' => self.create_token(TokenType.COMMA, .{ .none = {} }),
+            '.' => self.create_token(TokenType.DOT, .{ .none = {} }),
+            '-' => self.create_token(TokenType.MINUS, .{ .none = {} }),
+            '+' => self.create_token(TokenType.PLUS, .{ .none = {} }),
+            ';' => self.create_token(TokenType.SEMICOLON, .{ .none = {} }),
+            '*' => self.create_token(TokenType.STAR, .{ .none = {} }),
+            '!' => if (self.match('=')) self.create_token(TokenType.BANG_EQUAL, .{ .none = {} }) else self.create_token(TokenType.BANG, .{ .none = {} }),
+            '=' => if (self.match('=')) self.create_token(TokenType.EQUAL_EQUAL, .{ .none = {} }) else self.create_token(TokenType.EQUAL, .{ .none = {} }),
+            '<' => if (self.match('=')) self.create_token(TokenType.LESS_EQUAL, .{ .none = {} }) else self.create_token(TokenType.LESS, .{ .none = {} }),
+            '>' => if (self.match('=')) self.create_token(TokenType.GREATER_EQUAL, .{ .none = {} }) else self.create_token(TokenType.GREATER, .{ .none = {} }),
+            // comments are handled in skip_whitespace
+            '/' => self.create_token(TokenType.SLASH, .{ .none = {} }),
             '"' => self.string(),
             else => {
                 if (is_digit(c)) {
@@ -163,15 +163,15 @@ pub const Scanner = struct {
                 if (is_alpha(c)) {
                     return self.identifier();
                 }
-                return self.createToken(TokenType.ERROR, .{ .none = {} });
+                return self.create_token(TokenType.ERROR, .{ .none = {} });
             },
         };
 
         return token;
     }
 
-    fn skipWhitespace(self: *Scanner) void {
-        while (!self.isAtEnd()) {
+    fn skip_whitespace(self: *Scanner) void {
+        while (!self.is_at_end()) {
             const c = self.peek();
             switch (c) {
                 ' ', '\r', '\t' => _ = self.advance(),
@@ -181,7 +181,7 @@ pub const Scanner = struct {
                 },
                 '/' => {
                     if (self.match('/')) {
-                        while (!self.isAtEnd() and self.peek() != '\n')
+                        while (!self.is_at_end() and self.peek() != '\n')
                             _ = self.advance();
                     } else {
                         return;
@@ -193,21 +193,21 @@ pub const Scanner = struct {
     }
 
     fn string(self: *Scanner) Token {
-        while (self.peek() != '"' and !self.isAtEnd()) {
+        while (self.peek() != '"' and !self.is_at_end()) {
             if (self.peek() == '\n') self.line += 1;
             _ = self.advance();
         }
 
-        if (self.isAtEnd()) {
+        if (self.is_at_end()) {
             std.debug.print("Unterminated string.\n", .{});
-            return self.createToken(TokenType.ERROR, .{ .none = {} });
+            return self.create_token(TokenType.ERROR, .{ .none = {} });
         }
 
         // closing it
         _ = self.advance();
 
         const literal = self.source[self.start + 1 .. self.curr - 1];
-        return self.createToken(TokenType.STRING, .{ .string = literal });
+        return self.create_token(TokenType.STRING, .{ .string = literal });
     }
 
     fn number(self: *Scanner) Token {
@@ -222,7 +222,7 @@ pub const Scanner = struct {
 
         const literal = self.source[self.start..self.curr];
         const float_value = std.fmt.parseFloat(f64, literal) catch 0;
-        return self.createToken(TokenType.NUMBER, .{ .double = float_value });
+        return self.create_token(TokenType.NUMBER, .{ .double = float_value });
     }
 
     fn identifier(self: *Scanner) Token {
@@ -231,10 +231,10 @@ pub const Scanner = struct {
         const text = self.source[self.start..self.curr];
         const token_type = keywords.get(text) orelse TokenType.IDENTIFIER;
 
-        return self.createToken(token_type, .{ .none = {} });
+        return self.create_token(token_type, .{ .none = {} });
     }
 
-    fn createToken(self: *Scanner, token_type: TokenType, literal: TokenLiteral) Token {
+    fn create_token(self: *Scanner, token_type: TokenType, literal: TokenLiteral) Token {
         const lexeme = self.source[self.start..self.curr];
         return Token.init(token_type, lexeme, literal, self.line);
     }
@@ -246,23 +246,23 @@ pub const Scanner = struct {
     }
 
     fn peek(self: *Scanner) u8 {
-        if (self.isAtEnd()) return 0;
+        if (self.is_at_end()) return 0;
         return self.source[self.curr];
     }
 
     fn peek_next(self: *Scanner) u8 {
-        if (self.isAtEnd()) return 0;
+        if (self.is_at_end()) return 0;
         return self.source[self.curr + 1];
     }
 
     fn match(self: *Scanner, expected: u8) bool {
-        if (self.isAtEnd()) return false;
+        if (self.is_at_end()) return false;
         if (self.source[self.curr] != expected) return false;
         self.curr += 1;
         return true;
     }
 
-    fn isAtEnd(self: *Scanner) bool {
+    fn is_at_end(self: *Scanner) bool {
         return self.curr >= self.source.len;
     }
 };
@@ -273,7 +273,7 @@ test "scanner handles comments" {
     const source = "//";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 1), tokens.items.len);
@@ -288,7 +288,7 @@ test "handle grouping stuff" {
     const source = "(( )){}";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 7), tokens.items.len);
@@ -315,7 +315,7 @@ test "scanner handles single-line string" {
     const source = "\"hello\"";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 2), tokens.items.len);
@@ -329,7 +329,7 @@ test "scanner handles multi-line string" {
     const source = "\"hello\nworld\"";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 2), tokens.items.len);
@@ -343,7 +343,7 @@ test "scanner handles decimal numbers" {
     const source = "123.456 19";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 3), tokens.items.len);
@@ -359,7 +359,7 @@ test "scanner handles identifiers" {
     const source = "camelCase underscore_case A1c";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 4), tokens.items.len);
@@ -377,7 +377,7 @@ test "scanner handles keywords" {
     const source = "and class else false for fun if nil or print return super this true var while";
 
     var scanner = try Scanner.init(source);
-    var tokens = try scanner.scanTokens();
+    var tokens = try scanner.scan_tokens();
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 17), tokens.items.len);
