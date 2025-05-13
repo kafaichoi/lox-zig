@@ -1,237 +1,275 @@
 const std = @import("std");
 const Expr = @import("./expr.zig").Expr;
 const Value = @import("./expr.zig").Value;
+const Stmt = @import("./stmt.zig").Stmt;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 
 // Runtime error type
 pub const RuntimeError = struct {
-    token: Token,
     message: []const u8,
+    token: Token,
 };
 
 pub const Interpreter = struct {
-    had_error: bool,
     runtime_error: ?RuntimeError,
+    had_error: bool,
+    allocator: std.mem.Allocator,
+    writer: ?*std.ArrayList(u8),
 
-    pub fn init() Interpreter {
+    pub fn init(allocator: std.mem.Allocator) Interpreter {
         return Interpreter{
-            .had_error = false,
             .runtime_error = null,
+            .had_error = false,
+            .allocator = allocator,
+            .writer = null,
         };
     }
 
-    pub fn interpret(self: *Interpreter, expression: *Expr) !Value {
-        self.had_error = false;
-        self.runtime_error = null;
-        return self.evaluate(expression);
+    pub fn interpret(self: *Interpreter, statements: []*Stmt) !void {
+        for (statements) |statement| {
+            try self.execute(statement);
+        }
     }
 
-    fn evaluate(self: *Interpreter, expr: *Expr) Value {
-        return switch (expr.*) {
-            .literal => |l| self.evaluateLiteral(l),
-            .grouping => |g| self.evaluateGrouping(g),
-            .unary => |u| self.evaluateUnary(u),
-            .binary => |b| self.evaluateBinary(b),
-        };
-    }
-
-    fn evaluateLiteral(self: *Interpreter, expr: *Expr.LiteralExpr) Value {
-        _ = self;
-        return expr.value;
-    }
-
-    fn evaluateGrouping(self: *Interpreter, expr: *Expr.GroupingExpr) Value {
-        return self.evaluate(expr.expression);
-    }
-
-    fn evaluateUnary(self: *Interpreter, expr: *Expr.UnaryExpr) Value {
-        const right = self.evaluate(expr.right);
-
-        switch (expr.operator.type) {
-            .MINUS => {
-                _ = self.checkNumberOperand(expr.operator, right) catch return Value{ .nil = {} };
-                if (right == .double) {
-                    return Value{ .double = -right.double };
+    fn execute(self: *Interpreter, stmt: *Stmt) !void {
+        switch (stmt.*) {
+            .print => |p| {
+                const value = try self.evaluate(p.expression);
+                const str = self.stringify(value);
+                defer if (@as(std.meta.Tag(Value), value) == .double) self.allocator.free(str);
+                if (self.writer) |writer| {
+                    try writer.appendSlice(str);
+                    try writer.appendSlice("\n");
+                } else {
+                    const stdout = std.io.getStdOut().writer();
+                    try stdout.print("{s}\n", .{str});
                 }
             },
-            .BANG => {
-                return Value{ .boolean = !isTruthy(right) };
+            .expression => |e| {
+                _ = try self.evaluate(e.expression);
             },
-            else => {},
         }
-
-        // Unreachable
-        return Value{ .nil = {} };
     }
 
-    fn evaluateBinary(self: *Interpreter, expr: *Expr.BinaryExpr) Value {
-        const left = self.evaluate(expr.left);
-        const right = self.evaluate(expr.right);
+    fn evaluate(self: *Interpreter, expr: *Expr) !Value {
+        return switch (expr.*) {
+            .binary => |b| try self.evaluateBinary(b),
+            .unary => |u| try self.evaluateUnary(u),
+            .grouping => |g| try self.evaluate(g.expression),
+            .literal => |l| l.value,
+        };
+    }
+
+    fn evaluateBinary(self: *Interpreter, expr: *Expr.BinaryExpr) anyerror!Value {
+        const left = try self.evaluate(expr.left);
+        const right = try self.evaluate(expr.right);
 
         switch (expr.operator.type) {
-            // Comparison operators
-            .GREATER => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
-                return Value{ .boolean = left.double > right.double };
-            },
-            .GREATER_EQUAL => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
-                return Value{ .boolean = left.double >= right.double };
-            },
-            .LESS => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
-                return Value{ .boolean = left.double < right.double };
-            },
-            .LESS_EQUAL => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
-                return Value{ .boolean = left.double <= right.double };
-            },
-
-            // Equality operators
-            .BANG_EQUAL => return Value{ .boolean = !isEqual(left, right) },
-            .EQUAL_EQUAL => return Value{ .boolean = isEqual(left, right) },
-
-            // Arithmetic operators
             .MINUS => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
+                if (left != .double or right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
                 return Value{ .double = left.double - right.double };
             },
-            .PLUS => {
-                // Handle addition or string concatenation
-                if (left == .double and right == .double) {
-                    return Value{ .double = left.double + right.double };
-                }
-
-                if (left == .string and right == .string) {
-                    const len = left.string.len + right.string.len;
-                    var result = std.heap.page_allocator.alloc(u8, len) catch {
-                        self.runtime_error = RuntimeError{
-                            .token = expr.operator,
-                            .message = "Out of memory.",
-                        };
-                        return Value{ .nil = {} };
-                    };
-                    @memcpy(result[0..left.string.len], left.string);
-                    @memcpy(result[left.string.len..], right.string);
-                    return Value{ .string = result };
-                }
-
-                self.runtime_error = RuntimeError{
-                    .token = expr.operator,
-                    .message = "Operands must be two numbers or two strings.",
-                };
-                std.debug.print("Error: {s}\n[line {d}]\n", .{ self.runtime_error.?.message, expr.operator.line });
-                return Value{ .nil = {} };
-            },
             .SLASH => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
-
-                // Check for division by zero
-                if (right.double == 0.0) {
+                if (left != .double or right != .double) {
                     self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
                         .token = expr.operator,
-                        .message = "Division by zero.",
                     };
-                    return Value{ .nil = {} };
+                    self.had_error = true;
+                    return error.RuntimeError;
                 }
-
+                if (right.double == 0) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Division by zero.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
                 return Value{ .double = left.double / right.double };
             },
             .STAR => {
-                self.checkNumberOperands(expr.operator, left, right) catch return Value{ .nil = {} };
+                if (left != .double or right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
                 return Value{ .double = left.double * right.double };
             },
-            else => {},
+            .PLUS => {
+                if (left == .double and right == .double) {
+                    return Value{ .double = left.double + right.double };
+                }
+                if (left == .string and right == .string) {
+                    var result = std.ArrayList(u8).init(self.allocator);
+                    defer result.deinit();
+                    try result.appendSlice(left.string);
+                    try result.appendSlice(right.string);
+                    const final_str = try self.allocator.dupe(u8, result.items);
+                    return Value{ .string = final_str };
+                }
+                self.runtime_error = RuntimeError{
+                    .message = "Operands must be two numbers or two strings.",
+                    .token = expr.operator,
+                };
+                self.had_error = true;
+                std.debug.print("Error: {s}\n[line {d}]\n", .{ self.runtime_error.?.message, expr.operator.line });
+                return error.RuntimeError;
+            },
+            .GREATER => {
+                if (left != .double or right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
+                return Value{ .boolean = left.double > right.double };
+            },
+            .GREATER_EQUAL => {
+                if (left != .double or right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
+                return Value{ .boolean = left.double >= right.double };
+            },
+            .LESS => {
+                if (left != .double or right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
+                return Value{ .boolean = left.double < right.double };
+            },
+            .LESS_EQUAL => {
+                if (left != .double or right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operands must be numbers.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
+                return Value{ .boolean = left.double <= right.double };
+            },
+            .BANG_EQUAL => return Value{ .boolean = !isEqual(left, right) },
+            .EQUAL_EQUAL => return Value{ .boolean = isEqual(left, right) },
+            else => {
+                self.runtime_error = RuntimeError{
+                    .message = "Invalid binary operator.",
+                    .token = expr.operator,
+                };
+                self.had_error = true;
+                return error.RuntimeError;
+            },
         }
-
-        // Unreachable
-        return Value{ .nil = {} };
     }
 
-    // Return true if the value is "truthy" by Lox rules
-    fn isTruthy(value: Value) bool {
-        return switch (value) {
+    fn evaluateUnary(self: *Interpreter, expr: *Expr.UnaryExpr) anyerror!Value {
+        const right = try self.evaluate(expr.right);
+
+        switch (expr.operator.type) {
+            .MINUS => {
+                if (right != .double) {
+                    self.runtime_error = RuntimeError{
+                        .message = "Operand must be a number.",
+                        .token = expr.operator,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
+                return Value{ .double = -right.double };
+            },
+            .BANG => return Value{ .boolean = !isTruthy(right) },
+            else => {
+                self.runtime_error = RuntimeError{
+                    .message = "Invalid unary operator.",
+                    .token = expr.operator,
+                };
+                self.had_error = true;
+                return error.RuntimeError;
+            },
+        }
+    }
+
+    fn isTruthy(_value: Value) bool {
+        return switch (_value) {
             .nil => false,
             .boolean => |b| b,
             else => true,
         };
     }
 
-    // Check if two values are equal by Lox rules
-    fn isEqual(a: Value, b: Value) bool {
-        if (@as(std.meta.Tag(Value), a) != @as(std.meta.Tag(Value), b)) {
-            return false;
-        }
-
-        return switch (a) {
-            .nil => true, // nil is only equal to nil
-            .boolean => |boolean_a| boolean_a == b.boolean,
-            .double => |double_a| double_a == b.double,
-            .string => |string_a| std.mem.eql(u8, string_a, b.string),
+    fn isEqual(_a: Value, _b: Value) bool {
+        if (@as(std.meta.Tag(Value), _a) != @as(std.meta.Tag(Value), _b)) return false;
+        return switch (_a) {
+            .nil => true,
+            .boolean => |a_bool| a_bool == _b.boolean,
+            .double => |a_num| a_num == _b.double,
+            .string => |a_str| std.mem.eql(u8, a_str, _b.string),
             .none => false,
         };
     }
 
-    // Print value for debugging
-    pub fn stringify(value: Value) []const u8 {
-        return switch (value) {
+    fn stringify(self: *Interpreter, _value: Value) []const u8 {
+        return switch (_value) {
             .nil => "nil",
             .boolean => |b| if (b) "true" else "false",
-            .double => |d| {
-                var buf: [4096]u8 = undefined;
-                const result = std.fmt.bufPrintZ(&buf, "{d}", .{d}) catch "error";
-                return result;
+            .double => |n| blk: {
+                const str = std.fmt.allocPrint(self.allocator, "{d}", .{n}) catch "number";
+                break :blk str;
             },
             .string => |s| s,
             .none => "none",
         };
     }
-
-    // Check if a value is a number
-    fn checkNumberOperand(self: *Interpreter, operator: Token, operand: Value) !Value {
-        switch (operand) {
-            .double => return operand,
-            else => {
-                self.runtime_error = RuntimeError{
-                    .token = operator,
-                    .message = "Operand must be a number.",
-                };
-                return operand;
-            },
-        }
-    }
-
-    // Check if two values are numbers
-    fn checkNumberOperands(self: *Interpreter, operator: Token, left: Value, right: Value) !void {
-        if (left == .double and right == .double) {
-            return;
-        }
-
-        self.runtime_error = RuntimeError{
-            .token = operator,
-            .message = "Operands must be numbers.",
-        };
-    }
 };
 
 test "stringify" {
+    var interpreter = Interpreter.init(std.testing.allocator);
     // Test nil
-    try std.testing.expectEqualStrings("nil", Interpreter.stringify(Value{ .nil = {} }));
+    try std.testing.expectEqualStrings("nil", interpreter.stringify(Value{ .nil = {} }));
 
     // Test booleans
-    try std.testing.expectEqualStrings("true", Interpreter.stringify(Value{ .boolean = true }));
-    try std.testing.expectEqualStrings("false", Interpreter.stringify(Value{ .boolean = false }));
+    try std.testing.expectEqualStrings("true", interpreter.stringify(Value{ .boolean = true }));
+    try std.testing.expectEqualStrings("false", interpreter.stringify(Value{ .boolean = false }));
 
     // Test numbers - note that integers are printed without decimal point
-    try std.testing.expectEqualStrings("42", Interpreter.stringify(Value{ .double = 42.0 }));
-    try std.testing.expectEqualStrings("3.14", Interpreter.stringify(Value{ .double = 3.14 }));
-    try std.testing.expectEqualStrings("0", Interpreter.stringify(Value{ .double = 0.0 }));
-    try std.testing.expectEqualStrings("-1", Interpreter.stringify(Value{ .double = -1.0 }));
+    const str_42 = interpreter.stringify(Value{ .double = 42 });
+    try std.testing.expectEqualStrings("42", str_42);
+    std.testing.allocator.free(str_42);
+    const str_314 = interpreter.stringify(Value{ .double = 3.14 });
+    try std.testing.expectEqualStrings("3.14", str_314);
+    std.testing.allocator.free(str_314);
+    const str_0 = interpreter.stringify(Value{ .double = 0 });
+    try std.testing.expectEqualStrings("0", str_0);
+    std.testing.allocator.free(str_0);
+    const str_neg1 = interpreter.stringify(Value{ .double = -1 });
+    try std.testing.expectEqualStrings("-1", str_neg1);
+    std.testing.allocator.free(str_neg1);
 
     // Test strings
-    try std.testing.expectEqualStrings("hello", Interpreter.stringify(Value{ .string = "hello" }));
+    try std.testing.expectEqualStrings("hello", interpreter.stringify(Value{ .string = "hello" }));
 
     // Test none
-    try std.testing.expectEqualStrings("none", Interpreter.stringify(Value{ .none = {} }));
+    try std.testing.expectEqualStrings("none", interpreter.stringify(Value{ .none = {} }));
 }

@@ -2,99 +2,86 @@ const std = @import("std");
 const Scanner = @import("./scanner.zig").Scanner;
 const Parser = @import("./parser.zig").Parser;
 const Interpreter = @import("./interpreter.zig").Interpreter;
-const Value = @import("./expr.zig").Value;
-const Expr = @import("./expr.zig").Expr;
+const Stmt = @import("./stmt.zig").Stmt;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    var interpreter = Interpreter.init();
-
-    if (args.len > 2) {
-        std.debug.print("Usage: lox [script]\n", .{});
-        std.process.exit(64);
-    } else if (args.len == 2) {
-        try runFile(allocator, &interpreter, args[1]);
-    } else {
-        try runPrompt(allocator, &interpreter);
-    }
-}
-
-fn runFile(allocator: std.mem.Allocator, interpreter: *Interpreter, path: []const u8) !void {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-
-    const source = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(source);
-
-    try run(allocator, interpreter, source);
-
-    if (interpreter.had_error) std.process.exit(65);
-    if (interpreter.runtime_error != null) std.process.exit(70);
-}
-
-fn runPrompt(allocator: std.mem.Allocator, interpreter: *Interpreter) !void {
-    const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
+    const stdin = std.io.getStdIn().reader();
+    var buffer: [1024]u8 = undefined;
 
-    var input_buffer: [1024]u8 = undefined;
+    try stdout.print("Lox REPL (press Ctrl+D to exit)\n", .{});
 
     while (true) {
         try stdout.print("> ", .{});
-        const line = stdin.readUntilDelimiterOrEof(&input_buffer, '\n') catch |err| {
-            std.debug.print("Error reading input: {}\n", .{err});
-            continue;
+        const input = stdin.readUntilDelimiter(&buffer, '\n') catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
         };
 
-        if (line == null or line.?.len == 0) {
-            break;
+        if (input.len == 0) continue;
+
+        var scanner = try Scanner.init(input);
+        const tokens = try scanner.scan_tokens();
+        defer {
+            tokens.deinit();
         }
 
-        run(allocator, interpreter, line.?) catch |err| {
-            std.debug.print("Error: {}\n", .{err});
+        var parser = Parser.init(tokens.items, allocator);
+        const statements = parser.parse() catch {
+            try stdout.print("Error parsing input.\n", .{});
+            continue;
         };
-        interpreter.had_error = false;
-        interpreter.runtime_error = null;
+        defer {
+            for (statements) |stmt| {
+                stmt.deinit(allocator);
+            }
+            allocator.free(statements);
+        }
+
+        var interpreter = Interpreter.init(allocator);
+        interpreter.interpret(statements) catch {
+            if (interpreter.runtime_error) |err| {
+                try stdout.print("Runtime error: {s}\n", .{err.message});
+            }
+            continue;
+        };
     }
-}
-
-fn run(allocator: std.mem.Allocator, interpreter: *Interpreter, source: []const u8) !void {
-    var scanner = try Scanner.init(source);
-    var tokens_list = try scanner.scan_tokens();
-    defer tokens_list.deinit();
-
-    const tokens = tokens_list.items;
-    var parser = Parser.init(tokens, allocator);
-    const expr = try parser.parse();
-    defer expr.deinit(allocator);
-
-    const value = try interpreter.interpret(expr);
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print("{s}\n", .{Interpreter.stringify(value)});
 }
 
 // Test routine
 test "simple test" {
     const allocator = std.testing.allocator;
-    const source = "1 + 2 * 3";
+    const source = "print 1 + 2 * 3;";
     var scanner = try Scanner.init(source);
     var tokens_list = try scanner.scan_tokens();
     defer tokens_list.deinit();
 
     const tokens = tokens_list.items;
     var parser = Parser.init(tokens, allocator);
-    const expr = try parser.parse();
-    defer expr.deinit(allocator);
+    const statements = try parser.parse();
+    defer {
+        for (statements) |stmt| {
+            stmt.deinit(allocator);
+        }
+        allocator.free(statements);
+    }
 
-    var interpreter = Interpreter.init();
-    const value = try interpreter.interpret(expr);
+    // Create a buffer to capture output
+    var output_buffer = std.ArrayList(u8).init(allocator);
+    defer output_buffer.deinit();
 
-    try std.testing.expectEqual(Value{ .double = 7.0 }, value);
+    // Create a custom interpreter that writes to our buffer
+    var interpreter = Interpreter.init(allocator);
+    interpreter.writer = &output_buffer;
+    try interpreter.interpret(statements);
+
+    // Verify the output - check content without newline
+    const trimmed = std.mem.trimRight(u8, output_buffer.items, "\r\n");
+    try std.testing.expectEqualStrings("7", trimmed);
 }
 
 test "fuzz example" {

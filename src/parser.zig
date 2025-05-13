@@ -3,6 +3,7 @@ const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 const Expr = @import("./expr.zig").Expr;
 const Value = @import("./expr.zig").Value;
+const Stmt = @import("./stmt.zig").Stmt;
 const Allocator = std.mem.Allocator;
 
 // Parser error type
@@ -46,14 +47,39 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Parser) ParserError!*Expr {
-        return self.expression() catch |err| {
-            if (err == error.ParseError) {
-                self.synchronize();
-                return error.ParseError;
-            }
-            return err;
-        };
+    pub fn parse(self: *Parser) ParserError![]*Stmt {
+        var statements = std.ArrayList(*Stmt).init(self.allocator);
+
+        while (!self.isAtEnd()) {
+            const stmt = try self.declaration();
+            try statements.append(stmt);
+        }
+
+        return statements.toOwnedSlice();
+    }
+
+    fn declaration(self: *Parser) ParserError!*Stmt {
+        return self.statement();
+    }
+
+    fn statement(self: *Parser) ParserError!*Stmt {
+        if (self.match(&.{.PRINT})) {
+            return self.printStatement();
+        }
+
+        return self.expressionStatement();
+    }
+
+    fn printStatement(self: *Parser) ParserError!*Stmt {
+        const value = try self.expression();
+        _ = try self.consume(.SEMICOLON, "Expect ';' after value.");
+        return try Stmt.PrintStmt.create(self.allocator, value);
+    }
+
+    fn expressionStatement(self: *Parser) ParserError!*Stmt {
+        const expr = try self.expression();
+        _ = try self.consume(.SEMICOLON, "Expect ';' after expression.");
+        return try Stmt.ExpressionStmt.create(self.allocator, expr);
     }
 
     fn expression(self: *Parser) ParserError!*Expr {
@@ -214,39 +240,44 @@ pub const Parser = struct {
     }
 };
 
-test "simple parse test" {
+test "simple parse test 1+2;" {
     const tokens = [_]Token{
         .{ .type = .NUMBER, .lexeme = "1", .literal = .{ .double = 1.0 }, .line = 1 },
         .{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 },
         .{ .type = .NUMBER, .lexeme = "2", .literal = .{ .double = 2.0 }, .line = 1 },
+        .{ .type = .SEMICOLON, .lexeme = ";", .literal = .{ .none = {} }, .line = 1 },
         .{ .type = .EOF, .lexeme = "", .literal = .{ .none = {} }, .line = 1 },
     };
     var parser = Parser.init(&tokens, std.testing.allocator);
-    const expr = try parser.parse();
-    defer expr.deinit(std.testing.allocator);
+    const statements = try parser.parse();
+    defer {
+        for (statements) |stmt| {
+            stmt.deinit(std.testing.allocator);
+        }
+        std.testing.allocator.free(statements);
+    }
+
+    // Verify we have exactly one statement
+    try std.testing.expectEqual(@as(usize, 1), statements.len);
+
+    // Verify this is an expression statement
+    const stmt = statements[0];
+    try std.testing.expectEqual(Stmt.expression, @as(std.meta.Tag(Stmt), stmt.*));
+    const expr_stmt = stmt.expression;
+    const expr = expr_stmt.expression;
 
     // Verify this is a binary expression
-    switch (expr.*) {
-        .binary => |b| {
-            // Check left operand is 1
-            switch (b.left.*) {
-                .literal => |l| {
-                    try std.testing.expectEqual(Value{ .double = 1.0 }, l.value);
-                },
-                else => try std.testing.expect(false),
-            }
+    try std.testing.expectEqual(Expr.binary, @as(std.meta.Tag(Expr), expr.*));
+    const binary = expr.binary;
 
-            // Check operator is +
-            try std.testing.expectEqual(TokenType.PLUS, b.operator.type);
+    // Check left operand is 1
+    try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), binary.left.*));
+    try std.testing.expectEqual(Value{ .double = 1.0 }, binary.left.literal.value);
 
-            // Check right operand is 2
-            switch (b.right.*) {
-                .literal => |l| {
-                    try std.testing.expectEqual(Value{ .double = 2.0 }, l.value);
-                },
-                else => try std.testing.expect(false),
-            }
-        },
-        else => try std.testing.expect(false),
-    }
+    // Check operator is +
+    try std.testing.expectEqual(TokenType.PLUS, binary.operator.type);
+
+    // Check right operand is 2
+    try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), binary.right.*));
+    try std.testing.expectEqual(Value{ .double = 2.0 }, binary.right.literal.value);
 }
