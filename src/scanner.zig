@@ -132,7 +132,6 @@ pub const Scanner = struct {
 
         self.start = self.curr;
         if (self.is_at_end()) {
-            std.debug.print("EOF\n", .{});
             return self.create_token(TokenType.EOF, .{ .none = {} });
         }
 
@@ -277,7 +276,6 @@ test "scanner handles comments" {
     defer tokens.deinit();
 
     try testing.expectEqual(@as(usize, 1), tokens.items.len);
-    std.debug.print("token: {s}\n", .{tokens.items[0].lexeme});
 
     try testing.expectEqual(TokenType.EOF, tokens.items[0].type);
     try testing.expectEqualStrings("", tokens.items[0].lexeme);
