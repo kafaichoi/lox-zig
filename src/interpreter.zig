@@ -121,6 +121,7 @@ pub const Interpreter = struct {
                     .token = expr.operator,
                     .message = "Operands must be two numbers or two strings.",
                 };
+                std.debug.print("Error: {s}\n[line {d}]\n", .{ self.runtime_error.?.message, expr.operator.line });
                 return Value{ .nil = {} };
             },
             .SLASH => {
