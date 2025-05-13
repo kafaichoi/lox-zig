@@ -1,7 +1,12 @@
-fn run_file(path: []const u8) !void {
-    std.debug.print("Running script: {s}\n", .{path});
-    // signal command is valid
-    std.process.exit(0);
+fn run_file(allocator: std.mem.Allocator, path: []const u8) !void {
+    const source = try std.fs.cwd().readFileAlloc(allocator, path, 1024 * 1024);
+    defer allocator.free(source);
+    var scanner = try Scanner.init(source);
+    const tokens = try scanner.scan_tokens();
+    defer tokens.deinit();
+    for (tokens.items) |token| {
+        std.debug.print("TokenType: {any}, Lexeme: {s}, Line: {d}\n", .{ token.type, token.lexeme, token.line });
+    }
 }
 
 fn repl() !void {
@@ -47,7 +52,8 @@ pub fn main() !void {
         std.process.exit(64);
     } else if (args.len == 2) {
         std.debug.print("args: {s}\n", .{args});
-        try run_file(args[0]);
+        var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+        try run_file(debug_allocator.allocator(), args[1]);
     } else {
         try repl();
     }
