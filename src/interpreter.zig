@@ -173,17 +173,10 @@ pub const Interpreter = struct {
         return switch (value) {
             .nil => "nil",
             .boolean => |b| if (b) "true" else "false",
-            .double => |d| blk: {
-                // Remove decimal point for integer values
-                if (@floor(d) == d) {
-                    var buf: [32]u8 = undefined;
-                    const result = std.fmt.bufPrintZ(&buf, "{d:.0}", .{d}) catch break :blk "error";
-                    break :blk result;
-                } else {
-                    var buf: [32]u8 = undefined;
-                    const result = std.fmt.bufPrintZ(&buf, "{d}", .{d}) catch break :blk "error";
-                    break :blk result;
-                }
+            .double => |d| {
+                var buf: [4096]u8 = undefined;
+                const result = std.fmt.bufPrintZ(&buf, "{d}", .{d}) catch "error";
+                return result;
             },
             .string => |s| s,
             .none => "none",
@@ -216,3 +209,24 @@ pub const Interpreter = struct {
         };
     }
 };
+
+test "stringify" {
+    // Test nil
+    try std.testing.expectEqualStrings("nil", Interpreter.stringify(Value{ .nil = {} }));
+
+    // Test booleans
+    try std.testing.expectEqualStrings("true", Interpreter.stringify(Value{ .boolean = true }));
+    try std.testing.expectEqualStrings("false", Interpreter.stringify(Value{ .boolean = false }));
+
+    // Test numbers - note that integers are printed without decimal point
+    try std.testing.expectEqualStrings("42", Interpreter.stringify(Value{ .double = 42.0 }));
+    try std.testing.expectEqualStrings("3.14", Interpreter.stringify(Value{ .double = 3.14 }));
+    try std.testing.expectEqualStrings("0", Interpreter.stringify(Value{ .double = 0.0 }));
+    try std.testing.expectEqualStrings("-1", Interpreter.stringify(Value{ .double = -1.0 }));
+
+    // Test strings
+    try std.testing.expectEqualStrings("hello", Interpreter.stringify(Value{ .string = "hello" }));
+
+    // Test none
+    try std.testing.expectEqualStrings("none", Interpreter.stringify(Value{ .none = {} }));
+}
