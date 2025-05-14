@@ -410,6 +410,7 @@ test "type error handling" {
     // Try to add them
     const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
     const binary = try Expr.BinaryExpr.create(allocator, number, operator, string);
+    defer binary.deinit(allocator);
 
     // Evaluate should fail with a type error
     const result = interpreter.evaluate(binary);
@@ -433,13 +434,14 @@ test "boolean operations" {
     // Test equality
     const eq_op = Token{ .type = .EQUAL_EQUAL, .lexeme = "==", .literal = .{ .none = {} }, .line = 1 };
     const eq_expr = try Expr.BinaryExpr.create(allocator, true_lit, eq_op, false_lit);
+    defer eq_expr.deinit(allocator);
 
     const eq_result = try interpreter.evaluate(eq_expr);
     try std.testing.expectEqual(Value{ .boolean = false }, eq_result);
 
     // Test not equal
     const neq_op = Token{ .type = .BANG_EQUAL, .lexeme = "!=", .literal = .{ .none = {} }, .line = 1 };
-    const neq_expr = try Expr.BinaryExpr.create(allocator, true_lit, neq_op, false_lit);
+    const neq_expr = try Expr.BinaryExpr.create(allocator, try Expr.LiteralExpr.create(allocator, .{ .boolean = true }), neq_op, try Expr.LiteralExpr.create(allocator, .{ .boolean = false }));
     defer neq_expr.deinit(allocator);
 
     const neq_result = try interpreter.evaluate(neq_expr);
@@ -454,23 +456,23 @@ test "nil handling" {
     // Create nil literals
     const nil1 = try Expr.LiteralExpr.create(allocator, .{ .nil = {} });
     const nil2 = try Expr.LiteralExpr.create(allocator, .{ .nil = {} });
-    defer nil1.deinit(allocator);
-    defer nil2.deinit(allocator);
+    // Note: We don't need to free nil1 and nil2 as they are owned by the binary expressions
 
     // Test nil equality
     const eq_op = Token{ .type = .EQUAL_EQUAL, .lexeme = "==", .literal = .{ .none = {} }, .line = 1 };
     const eq_expr = try Expr.BinaryExpr.create(allocator, nil1, eq_op, nil2);
-    defer eq_expr.deinit(allocator);
+    defer eq_expr.deinit(allocator); // This will free both nil1 and nil2
 
     const eq_result = try interpreter.evaluate(eq_expr);
     try std.testing.expectEqual(Value{ .boolean = true }, eq_result);
 
     // Test nil with non-nil
     const number = try Expr.LiteralExpr.create(allocator, .{ .double = 42.0 });
-    defer number.deinit(allocator);
+    const nil1_2 = try Expr.LiteralExpr.create(allocator, .{ .nil = {} });
+    // Note: We don't need to free number or nil1_2 as they are owned by neq_expr
 
-    const neq_expr = try Expr.BinaryExpr.create(allocator, nil1, eq_op, number);
-    defer neq_expr.deinit(allocator);
+    const neq_expr = try Expr.BinaryExpr.create(allocator, nil1_2, eq_op, number);
+    defer neq_expr.deinit(allocator); // This will free both nil1_2 and number
 
     const neq_result = try interpreter.evaluate(neq_expr);
     try std.testing.expectEqual(Value{ .boolean = false }, neq_result);
