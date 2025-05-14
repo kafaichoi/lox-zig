@@ -175,7 +175,7 @@ pub const Parser = struct {
             // Convert from TokenLiteral to Value
             const value: Value = switch (token_literal) {
                 .double => |d| Value.init(.{ .double = d }, null),
-                .string => |s| Value.init(.{ .string = s }, null),
+                .string => |s| Value.init(.{ .string = s }, self.allocator),
                 else => Value.init(.{ .nil = {} }, null),
             };
             return try Expr.LiteralExpr.create(self.allocator, value);

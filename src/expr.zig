@@ -2,11 +2,6 @@ const std = @import("std");
 const Token = @import("./scanner.zig").Token;
 const Allocator = std.mem.Allocator;
 
-pub const StringValue = union(enum) {
-    owned: []u8, // must be freed
-    borrowed: []const u8, // must NOT be freed
-};
-
 // Value types that can be produced by the interpreter
 pub const ValueType = union(enum) {
     nil: void,
@@ -98,13 +93,7 @@ pub const Expr = union(enum) {
                 allocator.destroy(g);
             },
             .literal => |l| {
-                // Free string value if present and owned
-                switch (l.value.data) {
-                    .string => |s| {
-                        allocator.free(s);
-                    },
-                    else => {},
-                }
+                l.value.deinit();
                 allocator.destroy(l);
             },
             .unary => |u| {

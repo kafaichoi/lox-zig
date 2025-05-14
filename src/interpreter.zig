@@ -57,8 +57,7 @@ pub const Interpreter = struct {
             value = try self.evaluate(init_expr);
             if (value.isString()) {
                 const str = value.getString();
-                const new_str = try self.allocator.dupe(u8, str);
-                value = Value.init(.{ .string = new_str }, self.allocator);
+                value = Value.init(.{ .string = str }, self.allocator);
             }
         }
         try self.environment.put(decl.name, value);
@@ -166,11 +165,10 @@ pub const Interpreter = struct {
                 }
                 if (left.isString() and right.isString()) {
                     var result = std.ArrayList(u8).init(self.allocator);
-                    defer result.deinit();
                     try result.appendSlice(left.getString());
                     try result.appendSlice(right.getString());
-                    const final_str = try self.allocator.dupe(u8, result.items);
-                    return Value.init(.{ .string = final_str }, self.allocator);
+                    defer result.deinit();
+                    return Value.init(.{ .string = result.items }, self.allocator);
                 }
                 const message = try self.allocator.dupe(u8, "Operands must be two numbers or two strings.");
                 self.runtime_error = RuntimeError{
