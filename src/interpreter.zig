@@ -60,6 +60,9 @@ pub const Interpreter = struct {
         var value: Value = Value{ .nil = {} };
         if (decl.initializer) |init_expr| {
             value = try self.evaluate(init_expr);
+            if (value == .string) {
+                value = Value{ .string = try self.allocator.dupe(u8, value.string) };
+            }
         }
 
         try self.environment.put(decl.name, value);
@@ -69,6 +72,7 @@ pub const Interpreter = struct {
         switch (stmt.*) {
             .print => |p| {
                 const value = try self.evaluate(p.expression);
+                defer self.free_value(value);
                 const str = self.stringify(value);
                 defer if (@as(std.meta.Tag(Value), value) == .double) self.allocator.free(str);
                 if (self.writer) |writer| {
@@ -80,7 +84,8 @@ pub const Interpreter = struct {
                 }
             },
             .expression => |e| {
-                _ = try self.evaluate(e.expression);
+                const value = try self.evaluate(e.expression);
+                defer self.free_value(value);
             },
         }
     }
@@ -111,7 +116,9 @@ pub const Interpreter = struct {
 
     fn evaluate_binary(self: *Interpreter, expr: *Expr.BinaryExpr) anyerror!Value {
         const left = try self.evaluate(expr.left);
+        defer self.free_value(left);
         const right = try self.evaluate(expr.right);
+        defer self.free_value(right);
 
         switch (expr.operator.type) {
             .MINUS => {
@@ -244,6 +251,7 @@ pub const Interpreter = struct {
 
     fn evaluate_unary(self: *Interpreter, expr: *Expr.UnaryExpr) anyerror!Value {
         const right = try self.evaluate(expr.right);
+        defer self.free_value(right);
 
         switch (expr.operator.type) {
             .MINUS => {
@@ -301,6 +309,13 @@ pub const Interpreter = struct {
             .string => |s| s,
             .none => "none",
         };
+    }
+
+    fn free_value(self: *Interpreter, value: Value) void {
+        switch (value) {
+            .string => |s| self.allocator.free(s),
+            else => {},
+        }
     }
 };
 
@@ -382,19 +397,20 @@ test "string concatenation" {
     var interpreter = Interpreter.init(allocator);
     defer interpreter.deinit();
 
-    // Create two string literals
-    const left = try Expr.LiteralExpr.create(allocator, .{ .string = "hello" });
-    const right = try Expr.LiteralExpr.create(allocator, .{ .string = " world" });
+    // Create string literals with heap-allocated strings
+    const str1 = try Expr.LiteralExpr.create(allocator, .{ .string = try allocator.dupe(u8, "hello ") });
+    const str2 = try Expr.LiteralExpr.create(allocator, .{ .string = try allocator.dupe(u8, "world") });
+    defer str1.deinit(allocator);
+    defer str2.deinit(allocator);
 
-    // Create a binary expression for concatenation
-    const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
-    const binary = try Expr.BinaryExpr.create(allocator, left, operator, right);
-    defer binary.deinit(allocator);
+    // Create binary expression for concatenation
+    const plus_op = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
+    const concat_expr = try Expr.BinaryExpr.create(allocator, str1, plus_op, str2);
+    defer concat_expr.deinit(allocator);
 
-    // Evaluate the concatenation
-    const result = try interpreter.evaluate(binary);
-    defer if (result == .string) allocator.free(result.string);
-    std.debug.print("result.string = '{s}'\n", .{result.string});
+    // Evaluate the expression
+    const result = try interpreter.evaluate(concat_expr);
+    defer interpreter.free_value(result);
     try std.testing.expectEqualStrings("hello world", result.string);
 }
 
