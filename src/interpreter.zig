@@ -54,14 +54,14 @@ pub const Interpreter = struct {
 
     fn evaluate(self: *Interpreter, expr: *Expr) !Value {
         return switch (expr.*) {
-            .binary => |b| try self.evaluateBinary(b),
-            .unary => |u| try self.evaluateUnary(u),
+            .binary => |b| try self.evaluate_binary(b),
+            .unary => |u| try self.evaluate_unary(u),
             .grouping => |g| try self.evaluate(g.expression),
             .literal => |l| l.value,
         };
     }
 
-    fn evaluateBinary(self: *Interpreter, expr: *Expr.BinaryExpr) anyerror!Value {
+    fn evaluate_binary(self: *Interpreter, expr: *Expr.BinaryExpr) anyerror!Value {
         const left = try self.evaluate(expr.left);
         const right = try self.evaluate(expr.right);
 
@@ -171,8 +171,8 @@ pub const Interpreter = struct {
                 }
                 return Value{ .boolean = left.double <= right.double };
             },
-            .BANG_EQUAL => return Value{ .boolean = !isEqual(left, right) },
-            .EQUAL_EQUAL => return Value{ .boolean = isEqual(left, right) },
+            .BANG_EQUAL => return Value{ .boolean = !is_equal(left, right) },
+            .EQUAL_EQUAL => return Value{ .boolean = is_equal(left, right) },
             else => {
                 self.runtime_error = RuntimeError{
                     .message = "Invalid binary operator.",
@@ -184,7 +184,7 @@ pub const Interpreter = struct {
         }
     }
 
-    fn evaluateUnary(self: *Interpreter, expr: *Expr.UnaryExpr) anyerror!Value {
+    fn evaluate_unary(self: *Interpreter, expr: *Expr.UnaryExpr) anyerror!Value {
         const right = try self.evaluate(expr.right);
 
         switch (expr.operator.type) {
@@ -199,7 +199,7 @@ pub const Interpreter = struct {
                 }
                 return Value{ .double = -right.double };
             },
-            .BANG => return Value{ .boolean = !isTruthy(right) },
+            .BANG => return Value{ .boolean = !is_truthy(right) },
             else => {
                 self.runtime_error = RuntimeError{
                     .message = "Invalid unary operator.",
@@ -211,7 +211,7 @@ pub const Interpreter = struct {
         }
     }
 
-    fn isTruthy(_value: Value) bool {
+    fn is_truthy(_value: Value) bool {
         return switch (_value) {
             .nil => false,
             .boolean => |b| b,
@@ -219,7 +219,7 @@ pub const Interpreter = struct {
         };
     }
 
-    fn isEqual(_a: Value, _b: Value) bool {
+    fn is_equal(_a: Value, _b: Value) bool {
         if (@as(std.meta.Tag(Value), _a) != @as(std.meta.Tag(Value), _b)) return false;
         return switch (_a) {
             .nil => true,
