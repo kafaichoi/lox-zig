@@ -166,17 +166,17 @@ pub const Parser = struct {
     }
 
     fn primary(self: *Parser) ParserError!*Expr {
-        if (self.match(&.{.FALSE})) return try Expr.LiteralExpr.create(self.allocator, .{ .boolean = false });
-        if (self.match(&.{.TRUE})) return try Expr.LiteralExpr.create(self.allocator, .{ .boolean = true });
-        if (self.match(&.{.NIL})) return try Expr.LiteralExpr.create(self.allocator, .{ .nil = {} });
+        if (self.match(&.{.FALSE})) return try Expr.LiteralExpr.create(self.allocator, Value.init(.{ .boolean = false }, null));
+        if (self.match(&.{.TRUE})) return try Expr.LiteralExpr.create(self.allocator, Value.init(.{ .boolean = true }, null));
+        if (self.match(&.{.NIL})) return try Expr.LiteralExpr.create(self.allocator, Value.init(.{ .nil = {} }, null));
 
         if (self.match(&.{ .NUMBER, .STRING })) {
             const token_literal = self.previous().literal;
             // Convert from TokenLiteral to Value
             const value: Value = switch (token_literal) {
-                .double => |d| Value{ .double = d },
-                .string => |s| Value{ .string = s },
-                else => Value{ .nil = {} },
+                .double => |d| Value.init(.{ .double = d }, null),
+                .string => |s| Value.init(.{ .string = s }, null),
+                else => Value.init(.{ .nil = {} }, null),
             };
             return try Expr.LiteralExpr.create(self.allocator, value);
         }

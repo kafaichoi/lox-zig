@@ -8,12 +8,67 @@ pub const StringValue = union(enum) {
 };
 
 // Value types that can be produced by the interpreter
-pub const Value = union(enum) {
+pub const ValueType = union(enum) {
     nil: void,
     boolean: bool,
     double: f64,
-    string: StringValue,
+    string: []const u8,
     none: void,
+};
+
+pub const Value = struct {
+    data: ValueType,
+    allocator: ?std.mem.Allocator,
+
+    pub fn init(data: ValueType, allocator: ?std.mem.Allocator) Value {
+        return .{ .data = data, .allocator = allocator };
+    }
+
+    pub fn deinit(self: *Value) void {
+        if (self.allocator) |allocator| {
+            switch (self.data) {
+                .string => |s| allocator.free(s),
+                else => {},
+            }
+        }
+    }
+
+    pub fn isString(self: Value) bool {
+        return self.data == .string;
+    }
+
+    pub fn getString(self: Value) []const u8 {
+        return switch (self.data) {
+            .string => |s| s,
+            else => unreachable,
+        };
+    }
+
+    pub fn isNumber(self: Value) bool {
+        return self.data == .double;
+    }
+
+    pub fn getNumber(self: Value) f64 {
+        return switch (self.data) {
+            .double => |n| n,
+            else => unreachable,
+        };
+    }
+
+    pub fn isBoolean(self: Value) bool {
+        return self.data == .boolean;
+    }
+
+    pub fn getBoolean(self: Value) bool {
+        return switch (self.data) {
+            .boolean => |b| b,
+            else => unreachable,
+        };
+    }
+
+    pub fn isNil(self: Value) bool {
+        return self.data == .nil;
+    }
 };
 
 // Base expression interface
@@ -38,10 +93,9 @@ pub const Expr = union(enum) {
             },
             .literal => |l| {
                 // Free string value if present and owned
-                switch (l.value) {
-                    .string => |sv| switch (sv) {
-                        .owned => |s| allocator.free(s),
-                        .borrowed => {},
+                switch (l.value.data) {
+                    .string => |s| {
+                        allocator.free(s);
                     },
                     else => {},
                 }
