@@ -88,6 +88,20 @@ pub const Interpreter = struct {
             .unary => |u| try self.evaluate_unary(u),
             .grouping => |g| try self.evaluate(g.expression),
             .literal => |l| l.value,
+            .variable => |var_expr| {
+                const name = var_expr.name.lexeme;
+                const value = self.environment.get(name);
+                if (value) |v| {
+                    return v;
+                } else {
+                    self.runtime_error = RuntimeError{
+                        .message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name}),
+                        .token = var_expr.name,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
+            },
         };
     }
 
