@@ -81,19 +81,19 @@ pub const Parser = struct {
 
     fn statement(self: *Parser) ParserError!*Stmt {
         if (self.match(&.{.PRINT})) {
-            return self.printStatement();
+            return self.print_statement();
         }
 
-        return self.expressionStatement();
+        return self.expression_statement();
     }
 
-    fn printStatement(self: *Parser) ParserError!*Stmt {
+    fn print_statement(self: *Parser) ParserError!*Stmt {
         const value = try self.expression();
         _ = try self.consume(.SEMICOLON, "Expect ';' after value.");
         return try Stmt.PrintStmt.create(self.allocator, value);
     }
 
-    fn expressionStatement(self: *Parser) ParserError!*Stmt {
+    fn expression_statement(self: *Parser) ParserError!*Stmt {
         const expr = try self.expression();
         _ = try self.consume(.SEMICOLON, "Expect ';' after expression.");
         return try Stmt.ExpressionStmt.create(self.allocator, expr);
