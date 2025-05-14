@@ -301,14 +301,14 @@ test "simple parse test 1+2;" {
 
     // Check left operand is 1
     try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), binary.left.*));
-    try std.testing.expectEqual(Value{ .double = 1.0 }, binary.left.literal.value);
+    try std.testing.expectEqual(Value.init(.{ .double = 1.0 }, null), binary.left.literal.value);
 
     // Check operator is +
     try std.testing.expectEqual(TokenType.PLUS, binary.operator.type);
 
     // Check right operand is 2
     try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), binary.right.*));
-    try std.testing.expectEqual(Value{ .double = 2.0 }, binary.right.literal.value);
+    try std.testing.expectEqual(Value.init(.{ .double = 2.0 }, null), binary.right.literal.value);
 }
 
 test "variable declaration test" {
@@ -344,7 +344,7 @@ test "variable declaration test" {
     try std.testing.expect(var_decl.initializer != null);
     const init = var_decl.initializer.?;
     try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), init.*));
-    try std.testing.expectEqual(Value{ .double = 42.0 }, init.literal.value);
+    try std.testing.expectEqual(Value.init(.{ .double = 42.0 }, null), init.literal.value);
 }
 
 test "multiple declarations test" {
@@ -379,7 +379,7 @@ test "multiple declarations test" {
     try std.testing.expectEqual(Declaration.var_decl, @as(std.meta.Tag(Declaration), declarations[0].*));
     const var_decl = declarations[0].var_decl;
     try std.testing.expectEqualStrings("x", var_decl.name);
-    try std.testing.expectEqual(Value{ .double = 1.0 }, var_decl.initializer.?.literal.value);
+    try std.testing.expectEqual(Value.init(.{ .double = 1.0 }, null), var_decl.initializer.?.literal.value);
 
     // Second declaration should be a print statement
     try std.testing.expectEqual(Declaration.stmt, @as(std.meta.Tag(Declaration), declarations[1].*));

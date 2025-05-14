@@ -112,9 +112,7 @@ pub const Interpreter = struct {
 
     fn evaluate_binary(self: *Interpreter, expr: *Expr.BinaryExpr) anyerror!Value {
         var left = try self.evaluate(expr.left);
-        defer left.deinit();
         var right = try self.evaluate(expr.right);
-        defer right.deinit();
 
         switch (expr.operator.type) {
             .MINUS => {
@@ -339,7 +337,9 @@ test "stringify" {
     std.testing.allocator.free(str_neg1);
 
     // Test strings
-    try std.testing.expectEqualStrings("hello", interpreter.stringify(Value.init(.{ .string = "hello" }, null)));
+    var str_hello = Value.init(.{ .string = "hello" }, std.testing.allocator);
+    defer str_hello.deinit();
+    try std.testing.expectEqualStrings("hello", interpreter.stringify(str_hello));
 
     // Test none
     try std.testing.expectEqualStrings("none", interpreter.stringify(Value.init(.{ .none = {} }, null)));
@@ -392,15 +392,12 @@ test "string concatenation" {
     var interpreter = Interpreter.init(std.testing.allocator);
     defer interpreter.deinit();
 
-    const str1 = try std.testing.allocator.dupe(u8, "hello ");
-    const str2 = try std.testing.allocator.dupe(u8, "world");
-
     const plus_op = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
     const concat_expr = try Expr.BinaryExpr.create(
         std.testing.allocator,
-        try Expr.LiteralExpr.create(std.testing.allocator, Value.init(.{ .string = str1 }, null)),
+        try Expr.LiteralExpr.create(std.testing.allocator, Value.init(.{ .string = "hello " }, std.testing.allocator)),
         plus_op,
-        try Expr.LiteralExpr.create(std.testing.allocator, Value.init(.{ .string = str2 }, null)),
+        try Expr.LiteralExpr.create(std.testing.allocator, Value.init(.{ .string = "world" }, std.testing.allocator)),
     );
     defer concat_expr.deinit(std.testing.allocator);
 
@@ -417,7 +414,7 @@ test "type error handling" {
 
     // Create a number and a string
     const number = try Expr.LiteralExpr.create(allocator, Value.init(.{ .double = 42.0 }, null));
-    const string = try Expr.LiteralExpr.create(allocator, Value.init(.{ .string = "hello" }, null));
+    const string = try Expr.LiteralExpr.create(allocator, Value.init(.{ .string = "hello" }, std.testing.allocator));
 
     // Try to add them
     const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };

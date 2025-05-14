@@ -21,6 +21,12 @@ pub const Value = struct {
     allocator: ?std.mem.Allocator,
 
     pub fn init(data: ValueType, allocator: ?std.mem.Allocator) Value {
+        if (@as(std.meta.Tag(ValueType), data) == .string) {
+            std.debug.assert(allocator != null);
+            const s = data.string;
+            const heap_str = allocator.?.dupe(u8, s) catch unreachable;
+            return .{ .data = .{ .string = heap_str }, .allocator = allocator };
+        }
         return .{ .data = data, .allocator = allocator };
     }
 
