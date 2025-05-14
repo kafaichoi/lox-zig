@@ -4,6 +4,8 @@ const TokenType = @import("./scanner.zig").TokenType;
 const Expr = @import("./expr.zig").Expr;
 const Value = @import("./expr.zig").Value;
 const Stmt = @import("./stmt.zig").Stmt;
+const Declaration = @import("./decl.zig").Declaration;
+const VarDecl = @import("./decl.zig").VarDecl;
 const Allocator = std.mem.Allocator;
 
 // Parser error type
@@ -47,19 +49,34 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Parser) ParserError![]*Stmt {
-        var statements = std.ArrayList(*Stmt).init(self.allocator);
+    pub fn parse(self: *Parser) ParserError![]*Declaration {
+        var declarations = std.ArrayList(*Declaration).init(self.allocator);
 
         while (!self.isAtEnd()) {
             const stmt = try self.declaration();
-            try statements.append(stmt);
+            try declarations.append(stmt);
         }
 
-        return statements.toOwnedSlice();
+        return declarations.toOwnedSlice();
     }
 
-    fn declaration(self: *Parser) ParserError!*Stmt {
-        return self.statement();
+    fn declaration(self: *Parser) ParserError!*Declaration {
+        if (self.match(&.{.VAR})) {
+            return self.var_declaration();
+        }
+
+        const stmt = try self.statement();
+        const decl = try self.allocator.create(Declaration);
+        decl.* = Declaration{ .stmt = stmt };
+        return decl;
+    }
+
+    fn var_declaration(self: *Parser) ParserError!*Declaration {
+        const name = try self.consume(.IDENTIFIER, "Expect variable name.");
+        _ = try self.consume(.EQUAL, "Expect '=' after variable name.");
+        const initializer = try self.expression();
+        _ = try self.consume(.SEMICOLON, "Expect ';' after variable declaration.");
+        return try VarDecl.create(self.allocator, name.lexeme, initializer);
     }
 
     fn statement(self: *Parser) ParserError!*Stmt {
