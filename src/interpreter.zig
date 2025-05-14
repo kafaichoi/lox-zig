@@ -31,6 +31,9 @@ pub const Interpreter = struct {
     }
 
     pub fn deinit(self: *Interpreter) void {
+        if (self.runtime_error) |*err| {
+            self.allocator.free(err.message);
+        }
         var it = self.environment.iterator();
         while (it.next()) |entry| {
             if (entry.value_ptr.* == .string) {
@@ -94,8 +97,9 @@ pub const Interpreter = struct {
                 if (value) |v| {
                     return v;
                 } else {
+                    const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
                     self.runtime_error = RuntimeError{
-                        .message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name}),
+                        .message = message,
                         .token = var_expr.name,
                     };
                     self.had_error = true;
@@ -112,8 +116,9 @@ pub const Interpreter = struct {
         switch (expr.operator.type) {
             .MINUS => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -123,16 +128,18 @@ pub const Interpreter = struct {
             },
             .SLASH => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
                     return error.RuntimeError;
                 }
                 if (right.double == 0) {
+                    const message = try self.allocator.dupe(u8, "Division by zero.");
                     self.runtime_error = RuntimeError{
-                        .message = "Division by zero.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -142,8 +149,9 @@ pub const Interpreter = struct {
             },
             .STAR => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -163,8 +171,9 @@ pub const Interpreter = struct {
                     const final_str = try self.allocator.dupe(u8, result.items);
                     return Value{ .string = final_str };
                 }
+                const message = try self.allocator.dupe(u8, "Operands must be two numbers or two strings.");
                 self.runtime_error = RuntimeError{
-                    .message = "Operands must be two numbers or two strings.",
+                    .message = message,
                     .token = expr.operator,
                 };
                 self.had_error = true;
@@ -173,8 +182,9 @@ pub const Interpreter = struct {
             },
             .GREATER => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -184,8 +194,9 @@ pub const Interpreter = struct {
             },
             .GREATER_EQUAL => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -195,8 +206,9 @@ pub const Interpreter = struct {
             },
             .LESS => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -206,8 +218,9 @@ pub const Interpreter = struct {
             },
             .LESS_EQUAL => {
                 if (left != .double or right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operands must be numbers.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operands must be numbers.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -218,8 +231,9 @@ pub const Interpreter = struct {
             .BANG_EQUAL => return Value{ .boolean = !is_equal(left, right) },
             .EQUAL_EQUAL => return Value{ .boolean = is_equal(left, right) },
             else => {
+                const message = try self.allocator.dupe(u8, "Invalid binary operator.");
                 self.runtime_error = RuntimeError{
-                    .message = "Invalid binary operator.",
+                    .message = message,
                     .token = expr.operator,
                 };
                 self.had_error = true;
@@ -234,8 +248,9 @@ pub const Interpreter = struct {
         switch (expr.operator.type) {
             .MINUS => {
                 if (right != .double) {
+                    const message = try self.allocator.dupe(u8, "Operand must be a number.");
                     self.runtime_error = RuntimeError{
-                        .message = "Operand must be a number.",
+                        .message = message,
                         .token = expr.operator,
                     };
                     self.had_error = true;
@@ -245,8 +260,9 @@ pub const Interpreter = struct {
             },
             .BANG => return Value{ .boolean = !is_truthy(right) },
             else => {
+                const message = try self.allocator.dupe(u8, "Invalid unary operator.");
                 self.runtime_error = RuntimeError{
-                    .message = "Invalid unary operator.",
+                    .message = message,
                     .token = expr.operator,
                 };
                 self.had_error = true;
@@ -316,4 +332,146 @@ test "stringify" {
 
     // Test none
     try std.testing.expectEqualStrings("none", interpreter.stringify(Value{ .none = {} }));
+}
+
+test "variable declaration and access" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Create a variable declaration
+    const name = Token{ .type = .IDENTIFIER, .lexeme = "x", .literal = .{ .none = {} }, .line = 1 };
+    const value = try Expr.LiteralExpr.create(allocator, .{ .double = 42.0 });
+    const var_decl = try VarDecl.create(allocator, name.lexeme, value);
+    defer var_decl.deinit(allocator);
+
+    // Execute the declaration
+    try interpreter.execute_var_decl(var_decl.var_decl);
+
+    // Create a variable expression to access it
+    const var_expr = try Expr.VariableExpr.create(allocator, name);
+    defer var_expr.deinit(allocator);
+
+    // Evaluate the variable
+    const result = try interpreter.evaluate(var_expr);
+    try std.testing.expectEqual(Value{ .double = 42.0 }, result);
+}
+
+test "undefined variable error" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Create a variable expression for an undefined variable
+    const name = Token{ .type = .IDENTIFIER, .lexeme = "undefined", .literal = .{ .none = {} }, .line = 1 };
+    const var_expr = try Expr.VariableExpr.create(allocator, name);
+    defer var_expr.deinit(allocator);
+
+    // Try to evaluate the undefined variable
+    const result = interpreter.evaluate(var_expr);
+    try std.testing.expectError(error.RuntimeError, result);
+    try std.testing.expect(interpreter.had_error);
+    try std.testing.expect(interpreter.runtime_error != null);
+    if (interpreter.runtime_error) |err| {
+        try std.testing.expectEqualStrings("Undefined variable 'undefined'.", err.message);
+    }
+}
+
+test "string concatenation" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Create two string literals
+    const left = try Expr.LiteralExpr.create(allocator, .{ .string = "hello" });
+    const right = try Expr.LiteralExpr.create(allocator, .{ .string = " world" });
+
+    // Create a binary expression for concatenation
+    const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
+    const binary = try Expr.BinaryExpr.create(allocator, left, operator, right);
+    defer binary.deinit(allocator);
+
+    // Evaluate the concatenation
+    const result = try interpreter.evaluate(binary);
+    defer if (result == .string) allocator.free(result.string);
+    std.debug.print("result.string = '{s}'\n", .{result.string});
+    try std.testing.expectEqualStrings("hello world", result.string);
+}
+
+test "type error handling" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Create a number and a string
+    const number = try Expr.LiteralExpr.create(allocator, .{ .double = 42.0 });
+    const string = try Expr.LiteralExpr.create(allocator, .{ .string = "hello" });
+
+    // Try to add them
+    const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
+    const binary = try Expr.BinaryExpr.create(allocator, number, operator, string);
+
+    // Evaluate should fail with a type error
+    const result = interpreter.evaluate(binary);
+    try std.testing.expectError(error.RuntimeError, result);
+    try std.testing.expect(interpreter.had_error);
+    try std.testing.expect(interpreter.runtime_error != null);
+    if (interpreter.runtime_error) |err| {
+        try std.testing.expectEqualStrings("Operands must be two numbers or two strings.", err.message);
+    }
+}
+
+test "boolean operations" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Test true and false literals
+    const true_lit = try Expr.LiteralExpr.create(allocator, .{ .boolean = true });
+    const false_lit = try Expr.LiteralExpr.create(allocator, .{ .boolean = false });
+
+    // Test equality
+    const eq_op = Token{ .type = .EQUAL_EQUAL, .lexeme = "==", .literal = .{ .none = {} }, .line = 1 };
+    const eq_expr = try Expr.BinaryExpr.create(allocator, true_lit, eq_op, false_lit);
+
+    const eq_result = try interpreter.evaluate(eq_expr);
+    try std.testing.expectEqual(Value{ .boolean = false }, eq_result);
+
+    // Test not equal
+    const neq_op = Token{ .type = .BANG_EQUAL, .lexeme = "!=", .literal = .{ .none = {} }, .line = 1 };
+    const neq_expr = try Expr.BinaryExpr.create(allocator, true_lit, neq_op, false_lit);
+    defer neq_expr.deinit(allocator);
+
+    const neq_result = try interpreter.evaluate(neq_expr);
+    try std.testing.expectEqual(Value{ .boolean = true }, neq_result);
+}
+
+test "nil handling" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Create nil literals
+    const nil1 = try Expr.LiteralExpr.create(allocator, .{ .nil = {} });
+    const nil2 = try Expr.LiteralExpr.create(allocator, .{ .nil = {} });
+    defer nil1.deinit(allocator);
+    defer nil2.deinit(allocator);
+
+    // Test nil equality
+    const eq_op = Token{ .type = .EQUAL_EQUAL, .lexeme = "==", .literal = .{ .none = {} }, .line = 1 };
+    const eq_expr = try Expr.BinaryExpr.create(allocator, nil1, eq_op, nil2);
+    defer eq_expr.deinit(allocator);
+
+    const eq_result = try interpreter.evaluate(eq_expr);
+    try std.testing.expectEqual(Value{ .boolean = true }, eq_result);
+
+    // Test nil with non-nil
+    const number = try Expr.LiteralExpr.create(allocator, .{ .double = 42.0 });
+    defer number.deinit(allocator);
+
+    const neq_expr = try Expr.BinaryExpr.create(allocator, nil1, eq_op, number);
+    defer neq_expr.deinit(allocator);
+
+    const neq_result = try interpreter.evaluate(neq_expr);
+    try std.testing.expectEqual(Value{ .boolean = false }, neq_result);
 }
