@@ -10,6 +10,31 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const stdout = std.io.getStdOut().writer();
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    // Check if we're running in REPL mode or file mode
+    if (args.len > 2) {
+        try stdout.print("Usage: lox [script]\n", .{});
+        std.process.exit(64);
+    } else if (args.len == 2) {
+        // File mode
+        try run_file(allocator, args[1]);
+    } else {
+        // REPL mode
+        try run_repl(allocator);
+    }
+}
+
+fn run_file(allocator: std.mem.Allocator, path: []const u8) !void {
+    const source = try std.fs.cwd().readFileAlloc(allocator, path, std.math.maxInt(usize));
+    defer allocator.free(source);
+
+    try run(allocator, source);
+}
+
+fn run_repl(allocator: std.mem.Allocator) !void {
+    const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
     var buffer: [1024]u8 = undefined;
 
@@ -23,33 +48,35 @@ pub fn main() !void {
         };
 
         if (input.len == 0) continue;
-
-        var scanner = try Scanner.init(input);
-        const tokens = try scanner.scan_tokens();
-        defer {
-            tokens.deinit();
-        }
-
-        var parser = Parser.init(tokens.items, allocator);
-        const statements = parser.parse() catch {
-            try stdout.print("Error parsing input.\n", .{});
-            continue;
-        };
-        defer {
-            for (statements) |stmt| {
-                stmt.deinit(allocator);
-            }
-            allocator.free(statements);
-        }
-
-        var interpreter = Interpreter.init(allocator);
-        interpreter.interpret(statements) catch {
-            if (interpreter.runtime_error) |err| {
-                try stdout.print("Runtime error: {s}\n", .{err.message});
-            }
-            continue;
-        };
+        try run(allocator, input);
     }
+}
+
+fn run(allocator: std.mem.Allocator, source: []const u8) !void {
+    var scanner = try Scanner.init(source);
+    const tokens = try scanner.scan_tokens();
+    defer tokens.deinit();
+
+    var parser = Parser.init(tokens.items, allocator);
+    const statements = parser.parse() catch {
+        const stdout = std.io.getStdOut().writer();
+        try stdout.print("Error parsing input.\n", .{});
+        return;
+    };
+    defer {
+        for (statements) |stmt| {
+            stmt.deinit(allocator);
+        }
+        allocator.free(statements);
+    }
+
+    var interpreter = Interpreter.init(allocator);
+    interpreter.interpret(statements) catch {
+        if (interpreter.runtime_error) |err| {
+            const stdout = std.io.getStdOut().writer();
+            try stdout.print("Runtime error: {s}\n", .{err.message});
+        }
+    };
 }
 
 // Test routine
