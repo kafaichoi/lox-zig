@@ -73,8 +73,12 @@ pub const Parser = struct {
 
     fn var_declaration(self: *Parser) ParserError!*Declaration {
         const name = try self.consume(.IDENTIFIER, "Expect variable name.");
-        _ = try self.consume(.EQUAL, "Expect '=' after variable name.");
-        const initializer = try self.expression();
+
+        var initializer: ?*Expr = null;
+        if (self.match(&.{.EQUAL})) {
+            initializer = try self.expression();
+        }
+
         _ = try self.consume(.SEMICOLON, "Expect ';' after variable declaration.");
         return try VarDecl.create(self.allocator, name.lexeme, initializer);
     }
@@ -177,6 +181,10 @@ pub const Parser = struct {
             return try Expr.LiteralExpr.create(self.allocator, value);
         }
 
+        if (self.match(&.{.IDENTIFIER})) {
+            return try Expr.VariableExpr.create(self.allocator, self.previous());
+        }
+
         if (self.match(&.{.LEFT_PAREN})) {
             const expr = try self.expression();
             _ = try self.consume(.RIGHT_PARENS, "Expect ')' after expression.");
@@ -266,19 +274,23 @@ test "simple parse test 1+2;" {
         .{ .type = .EOF, .lexeme = "", .literal = .{ .none = {} }, .line = 1 },
     };
     var parser = Parser.init(&tokens, std.testing.allocator);
-    const statements = try parser.parse();
+    const declarations = try parser.parse();
     defer {
-        for (statements) |stmt| {
-            stmt.deinit(std.testing.allocator);
+        for (declarations) |decl| {
+            decl.deinit(std.testing.allocator);
         }
-        std.testing.allocator.free(statements);
+        std.testing.allocator.free(declarations);
     }
 
-    // Verify we have exactly one statement
-    try std.testing.expectEqual(@as(usize, 1), statements.len);
+    // Verify we have exactly one declaration
+    try std.testing.expectEqual(@as(usize, 1), declarations.len);
+
+    // Verify this is a statement declaration
+    const decl = declarations[0];
+    try std.testing.expectEqual(Declaration.stmt, @as(std.meta.Tag(Declaration), decl.*));
+    const stmt = decl.stmt;
 
     // Verify this is an expression statement
-    const stmt = statements[0];
     try std.testing.expectEqual(Stmt.expression, @as(std.meta.Tag(Stmt), stmt.*));
     const expr_stmt = stmt.expression;
     const expr = expr_stmt.expression;
@@ -297,4 +309,85 @@ test "simple parse test 1+2;" {
     // Check right operand is 2
     try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), binary.right.*));
     try std.testing.expectEqual(Value{ .double = 2.0 }, binary.right.literal.value);
+}
+
+test "variable declaration test" {
+    const tokens = [_]Token{
+        .{ .type = .VAR, .lexeme = "var", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .IDENTIFIER, .lexeme = "x", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .EQUAL, .lexeme = "=", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .NUMBER, .lexeme = "42", .literal = .{ .double = 42.0 }, .line = 1 },
+        .{ .type = .SEMICOLON, .lexeme = ";", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .EOF, .lexeme = "", .literal = .{ .none = {} }, .line = 1 },
+    };
+    var parser = Parser.init(&tokens, std.testing.allocator);
+    const declarations = try parser.parse();
+    defer {
+        for (declarations) |decl| {
+            decl.deinit(std.testing.allocator);
+        }
+        std.testing.allocator.free(declarations);
+    }
+
+    // Verify we have exactly one declaration
+    try std.testing.expectEqual(@as(usize, 1), declarations.len);
+
+    // Verify this is a variable declaration
+    const decl = declarations[0];
+    try std.testing.expectEqual(Declaration.var_decl, @as(std.meta.Tag(Declaration), decl.*));
+    const var_decl = decl.var_decl;
+
+    // Verify variable name
+    try std.testing.expectEqualStrings("x", var_decl.name);
+
+    // Verify initializer
+    try std.testing.expect(var_decl.initializer != null);
+    const init = var_decl.initializer.?;
+    try std.testing.expectEqual(Expr.literal, @as(std.meta.Tag(Expr), init.*));
+    try std.testing.expectEqual(Value{ .double = 42.0 }, init.literal.value);
+}
+
+test "multiple declarations test" {
+    const tokens = [_]Token{
+        // var x = 1;
+        .{ .type = .VAR, .lexeme = "var", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .IDENTIFIER, .lexeme = "x", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .EQUAL, .lexeme = "=", .literal = .{ .none = {} }, .line = 1 },
+        .{ .type = .NUMBER, .lexeme = "1", .literal = .{ .double = 1.0 }, .line = 1 },
+        .{ .type = .SEMICOLON, .lexeme = ";", .literal = .{ .none = {} }, .line = 1 },
+        // print x + 2;
+        .{ .type = .PRINT, .lexeme = "print", .literal = .{ .none = {} }, .line = 2 },
+        .{ .type = .IDENTIFIER, .lexeme = "x", .literal = .{ .none = {} }, .line = 2 },
+        .{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 2 },
+        .{ .type = .NUMBER, .lexeme = "2", .literal = .{ .double = 2.0 }, .line = 2 },
+        .{ .type = .SEMICOLON, .lexeme = ";", .literal = .{ .none = {} }, .line = 2 },
+        .{ .type = .EOF, .lexeme = "", .literal = .{ .none = {} }, .line = 2 },
+    };
+    var parser = Parser.init(&tokens, std.testing.allocator);
+    const declarations = try parser.parse();
+    defer {
+        for (declarations) |decl| {
+            decl.deinit(std.testing.allocator);
+        }
+        std.testing.allocator.free(declarations);
+    }
+
+    // Verify we have exactly two declarations
+    try std.testing.expectEqual(@as(usize, 2), declarations.len);
+
+    // First declaration should be a variable declaration
+    try std.testing.expectEqual(Declaration.var_decl, @as(std.meta.Tag(Declaration), declarations[0].*));
+    const var_decl = declarations[0].var_decl;
+    try std.testing.expectEqualStrings("x", var_decl.name);
+    try std.testing.expectEqual(Value{ .double = 1.0 }, var_decl.initializer.?.literal.value);
+
+    // Second declaration should be a print statement
+    try std.testing.expectEqual(Declaration.stmt, @as(std.meta.Tag(Declaration), declarations[1].*));
+    const stmt = declarations[1].stmt;
+    try std.testing.expectEqual(Stmt.print, @as(std.meta.Tag(Stmt), stmt.*));
+    const print_stmt = stmt.print;
+    const expr = print_stmt.expression;
+    try std.testing.expectEqual(Expr.binary, @as(std.meta.Tag(Expr), expr.*));
+    const binary = expr.binary;
+    try std.testing.expectEqual(TokenType.PLUS, binary.operator.type);
 }

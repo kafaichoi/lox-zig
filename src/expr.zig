@@ -17,6 +17,7 @@ pub const Expr = union(enum) {
     grouping: *GroupingExpr,
     literal: *LiteralExpr,
     unary: *UnaryExpr,
+    variable: *VariableExpr,
 
     // Free memory recursively
     pub fn deinit(self: *Expr, allocator: Allocator) void {
@@ -36,6 +37,9 @@ pub const Expr = union(enum) {
             .unary => |u| {
                 u.right.deinit(allocator);
                 allocator.destroy(u);
+            },
+            .variable => |v| {
+                allocator.destroy(v);
             },
         }
         allocator.destroy(self);
@@ -111,6 +115,23 @@ pub const Expr = union(enum) {
 
             const result = try allocator.create(Expr);
             result.* = Expr{ .unary = expr };
+            return result;
+        }
+    };
+
+    // Variable expression
+    pub const VariableExpr = struct {
+        name: Token,
+
+        // Create a new Variable expression
+        pub fn create(allocator: Allocator, name: Token) !*Expr {
+            const expr = try allocator.create(VariableExpr);
+            expr.* = VariableExpr{
+                .name = name,
+            };
+
+            const result = try allocator.create(Expr);
+            result.* = Expr{ .variable = expr };
             return result;
         }
     };

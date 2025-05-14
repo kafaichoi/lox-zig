@@ -2,7 +2,7 @@ const std = @import("std");
 const Scanner = @import("./scanner.zig").Scanner;
 const Parser = @import("./parser.zig").Parser;
 const Interpreter = @import("./interpreter.zig").Interpreter;
-const Stmt = @import("./stmt.zig").Stmt;
+const Declaration = @import("./decl.zig").Declaration;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -58,20 +58,21 @@ fn run(allocator: std.mem.Allocator, source: []const u8) !void {
     defer tokens.deinit();
 
     var parser = Parser.init(tokens.items, allocator);
-    const statements = parser.parse() catch {
+    const declarations = parser.parse() catch {
         const stdout = std.io.getStdOut().writer();
         try stdout.print("Error parsing input.\n", .{});
         return;
     };
     defer {
-        for (statements) |stmt| {
-            stmt.deinit(allocator);
+        for (declarations) |decl| {
+            decl.deinit(allocator);
         }
-        allocator.free(statements);
+        allocator.free(declarations);
     }
 
     var interpreter = Interpreter.init(allocator);
-    interpreter.interpret(statements) catch {
+    defer interpreter.deinit();
+    interpreter.interpret(declarations) catch {
         if (interpreter.runtime_error) |err| {
             const stdout = std.io.getStdOut().writer();
             try stdout.print("Runtime error: {s}\n", .{err.message});
@@ -89,12 +90,12 @@ test "simple test" {
 
     const tokens = tokens_list.items;
     var parser = Parser.init(tokens, allocator);
-    const statements = try parser.parse();
+    const declarations = try parser.parse();
     defer {
-        for (statements) |stmt| {
-            stmt.deinit(allocator);
+        for (declarations) |decl| {
+            decl.deinit(allocator);
         }
-        allocator.free(statements);
+        allocator.free(declarations);
     }
 
     // Create a buffer to capture output
@@ -103,8 +104,9 @@ test "simple test" {
 
     // Create a custom interpreter that writes to our buffer
     var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
     interpreter.writer = &output_buffer;
-    try interpreter.interpret(statements);
+    try interpreter.interpret(declarations);
 
     // Verify the output - check content without newline
     const trimmed = std.mem.trimRight(u8, output_buffer.items, "\r\n");

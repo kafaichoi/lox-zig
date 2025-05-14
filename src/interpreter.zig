@@ -2,6 +2,8 @@ const std = @import("std");
 const Expr = @import("./expr.zig").Expr;
 const Value = @import("./expr.zig").Value;
 const Stmt = @import("./stmt.zig").Stmt;
+const Declaration = @import("./decl.zig").Declaration;
+const VarDecl = @import("./decl.zig").VarDecl;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 
@@ -16,6 +18,7 @@ pub const Interpreter = struct {
     had_error: bool,
     allocator: std.mem.Allocator,
     writer: ?*std.ArrayList(u8),
+    environment: std.StringHashMap(Value),
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
         return Interpreter{
@@ -23,13 +26,40 @@ pub const Interpreter = struct {
             .had_error = false,
             .allocator = allocator,
             .writer = null,
+            .environment = std.StringHashMap(Value).init(allocator),
         };
     }
 
-    pub fn interpret(self: *Interpreter, statements: []*Stmt) !void {
-        for (statements) |statement| {
-            try self.execute(statement);
+    pub fn deinit(self: *Interpreter) void {
+        var it = self.environment.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* == .string) {
+                self.allocator.free(entry.value_ptr.*.string);
+            }
         }
+        self.environment.deinit();
+    }
+
+    pub fn interpret(self: *Interpreter, declarations: []*Declaration) !void {
+        for (declarations) |decl| {
+            try self.execute_declaration(decl);
+        }
+    }
+
+    fn execute_declaration(self: *Interpreter, decl: *Declaration) !void {
+        switch (decl.*) {
+            .stmt => |stmt| try self.execute(stmt),
+            .var_decl => |var_decl| try self.execute_var_decl(var_decl),
+        }
+    }
+
+    fn execute_var_decl(self: *Interpreter, decl: *VarDecl) !void {
+        var value: Value = Value{ .nil = {} };
+        if (decl.initializer) |init_expr| {
+            value = try self.evaluate(init_expr);
+        }
+
+        try self.environment.put(decl.name, value);
     }
 
     fn execute(self: *Interpreter, stmt: *Stmt) !void {

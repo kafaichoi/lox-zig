@@ -17,7 +17,6 @@ pub const Stmt = union(enum) {
                 allocator.destroy(e);
             },
         }
-        allocator.destroy(self);
     }
 
     pub const PrintStmt = struct {
