@@ -82,6 +82,11 @@ pub const Interpreter = struct {
                 var value = try self.evaluate(e.expression);
                 defer value.deinit();
             },
+            .block => |b| {
+                for (b.statements) |block_stmt| {
+                    try self.execute(block_stmt);
+                }
+            },
         }
     }
 

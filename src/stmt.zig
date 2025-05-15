@@ -5,6 +5,7 @@ const Allocator = std.mem.Allocator;
 pub const Stmt = union(enum) {
     print: *PrintStmt,
     expression: *ExpressionStmt,
+    block: *BlockStmt,
 
     pub fn deinit(self: *Stmt, allocator: Allocator) void {
         switch (self.*) {
@@ -15,6 +16,12 @@ pub const Stmt = union(enum) {
             .expression => |e| {
                 e.expression.deinit(allocator);
                 allocator.destroy(e);
+            },
+            .block => |b| {
+                for (b.statements) |stmt| {
+                    stmt.deinit(allocator);
+                }
+                allocator.destroy(b);
             },
         }
     }
@@ -45,6 +52,18 @@ pub const Stmt = union(enum) {
 
             const result = try allocator.create(Stmt);
             result.* = Stmt{ .expression = stmt };
+            return result;
+        }
+    };
+
+    pub const BlockStmt = struct {
+        statements: []*Stmt,
+
+        pub fn create(allocator: Allocator, statements: []*Stmt) !*Stmt {
+            const stmt = try allocator.create(BlockStmt);
+            stmt.* = BlockStmt{ .statements = statements };
+            const result = try allocator.create(Stmt);
+            result.* = Stmt{ .block = stmt };
             return result;
         }
     };
