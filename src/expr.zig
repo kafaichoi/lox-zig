@@ -86,6 +86,7 @@ pub const Expr = union(enum) {
     literal: *LiteralExpr,
     unary: *UnaryExpr,
     variable: *VariableExpr,
+    assign: *AssignExpr,
 
     // Free memory recursively
     pub fn deinit(self: *Expr, allocator: Allocator) void {
@@ -109,6 +110,10 @@ pub const Expr = union(enum) {
             },
             .variable => |v| {
                 allocator.destroy(v);
+            },
+            .assign => |a| {
+                a.value.deinit(allocator);
+                allocator.destroy(a);
             },
         }
         allocator.destroy(self);
@@ -201,6 +206,25 @@ pub const Expr = union(enum) {
 
             const result = try allocator.create(Expr);
             result.* = Expr{ .variable = expr };
+            return result;
+        }
+    };
+
+    // Assignment expression
+    pub const AssignExpr = struct {
+        name: Token,
+        value: *Expr,
+
+        // Create a new Assignment expression
+        pub fn create(allocator: Allocator, name: Token, value: *Expr) !*Expr {
+            const expr = try allocator.create(AssignExpr);
+            expr.* = AssignExpr{
+                .name = name,
+                .value = value,
+            };
+
+            const result = try allocator.create(Expr);
+            result.* = Expr{ .assign = expr };
             return result;
         }
     };

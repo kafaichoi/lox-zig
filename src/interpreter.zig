@@ -52,11 +52,13 @@ pub const Interpreter = struct {
     }
 
     fn execute_var_decl(self: *Interpreter, decl: *VarDecl) !void {
-        var value = Value.init(.{ .nil = {} }, null);
         if (decl.initializer) |init_expr| {
-            value = try self.evaluate(init_expr);
+            const value = try self.evaluate(init_expr);
+            try self.environment.define(decl.name, value);
+        } else {
+            // Do not initialize the variable
+            try self.environment.define_uninitialized(decl.name);
         }
-        try self.environment.define(decl.name, value);
     }
 
     fn execute(self: *Interpreter, stmt: *Stmt) anyerror!void {
@@ -105,7 +107,7 @@ pub const Interpreter = struct {
                 if (self.environment.get(name)) |v| {
                     return v;
                 } else {
-                    const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
+                    const message = try std.fmt.allocPrint(self.allocator, "Uninitialized variable '{s}'.", .{name});
                     self.runtime_error = RuntimeError{
                         .message = message,
                         .token = var_expr.name,
@@ -113,6 +115,34 @@ pub const Interpreter = struct {
                     self.had_error = true;
                     return error.RuntimeError;
                 }
+            },
+            .assign => |a| {
+                const value = try self.evaluate(a.value);
+                if (self.environment.values.contains(a.name.lexeme)) {
+                    if (self.environment.values.getPtr(a.name.lexeme)) |old_value| {
+                        old_value.deinit();
+                    }
+                    try self.environment.values.put(a.name.lexeme, value);
+                    try self.environment.initialized.put(a.name.lexeme, true);
+                    return value;
+                } else if (self.environment.enclosing) |parent| {
+                    // Try to assign in the enclosing scope
+                    if (parent.values.contains(a.name.lexeme)) {
+                        if (parent.values.getPtr(a.name.lexeme)) |old_value| {
+                            old_value.deinit();
+                        }
+                        try parent.values.put(a.name.lexeme, value);
+                        try parent.initialized.put(a.name.lexeme, true);
+                        return value;
+                    }
+                }
+                const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
+                self.runtime_error = RuntimeError{
+                    .message = message,
+                    .token = a.name,
+                };
+                self.had_error = true;
+                return error.RuntimeError;
             },
         };
     }
@@ -397,7 +427,7 @@ test "undefined variable error" {
     try std.testing.expect(interpreter.had_error);
     try std.testing.expect(interpreter.runtime_error != null);
     if (interpreter.runtime_error) |err| {
-        try std.testing.expectEqualStrings("Undefined variable 'undefined'.", err.message);
+        try std.testing.expectEqualStrings("Uninitialized variable 'undefined'.", err.message);
     }
 }
 
