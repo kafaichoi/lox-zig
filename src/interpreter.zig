@@ -8,6 +8,7 @@ const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 const ValueType = @import("./expr.zig").ValueType;
 const RuntimeError = @import("./error.zig").RuntimeError;
+const Environment = @import("./environment.zig").Environment;
 
 // Runtime error type
 pub const Interpreter = struct {
@@ -15,15 +16,17 @@ pub const Interpreter = struct {
     had_error: bool,
     allocator: std.mem.Allocator,
     writer: ?*std.ArrayList(u8),
-    environment: std.StringHashMap(Value),
+    environment: *Environment,
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
+        const env = allocator.create(Environment) catch unreachable;
+        env.* = Environment.init(allocator, null);
         return Interpreter{
             .runtime_error = null,
             .had_error = false,
             .allocator = allocator,
             .writer = null,
-            .environment = std.StringHashMap(Value).init(allocator),
+            .environment = env,
         };
     }
 
@@ -31,11 +34,8 @@ pub const Interpreter = struct {
         if (self.runtime_error) |*err| {
             self.allocator.free(err.message);
         }
-        var it = self.environment.iterator();
-        while (it.next()) |entry| {
-            entry.value_ptr.*.deinit();
-        }
         self.environment.deinit();
+        self.allocator.destroy(self.environment);
     }
 
     pub fn interpret(self: *Interpreter, declarations: []*Declaration) !void {
@@ -56,7 +56,7 @@ pub const Interpreter = struct {
         if (decl.initializer) |init_expr| {
             value = try self.evaluate(init_expr);
         }
-        try self.environment.put(decl.name, value);
+        try self.environment.define(decl.name, value);
     }
 
     fn execute(self: *Interpreter, stmt: *Stmt) anyerror!void {
@@ -79,6 +79,16 @@ pub const Interpreter = struct {
                 defer value.deinit();
             },
             .block => |b| {
+                // Create a new environment for the block
+                var block_env = self.allocator.create(Environment) catch unreachable;
+                block_env.* = Environment.init(self.allocator, self.environment);
+                const previous = self.environment;
+                self.environment = block_env;
+                defer {
+                    self.environment = previous;
+                    block_env.deinit();
+                    self.allocator.destroy(block_env);
+                }
                 for (b.statements) |decl| try self.execute_declaration(decl);
             },
         }
@@ -92,8 +102,7 @@ pub const Interpreter = struct {
             .literal => |l| l.value,
             .variable => |var_expr| {
                 const name = var_expr.name.lexeme;
-                const value = self.environment.get(name);
-                if (value) |v| {
+                if (self.environment.get(name)) |v| {
                     return v;
                 } else {
                     const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
@@ -318,6 +327,7 @@ pub const Interpreter = struct {
 
 test "stringify" {
     var interpreter = Interpreter.init(std.testing.allocator);
+    defer interpreter.deinit();
     // Test nil
     try std.testing.expectEqualStrings("nil", interpreter.stringify(Value.init(.{ .nil = {} }, null)));
 

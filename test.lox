@@ -9,6 +9,12 @@ var c = "global c";
     print a;
     print b;
     print c;
+    {
+        var c = "super innner";
+        print a;
+        print b;
+        print c;
+    }
   }
   print a;
   print b;
