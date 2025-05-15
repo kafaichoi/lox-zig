@@ -90,11 +90,21 @@ pub const Interpreter = struct {
             .binary => |b| try self.evaluate_binary(b),
             .unary => |u| try self.evaluate_unary(u),
             .grouping => |g| try self.evaluate(g.expression),
-            .literal => |l| l.value,
+            .literal => |l| {
+                if (l.value.isString()) {
+                    const str = l.value.getString();
+                    return Value.init(.{ .string = str }, self.allocator);
+                }
+                return l.value;
+            },
             .variable => |var_expr| {
                 const name = var_expr.name.lexeme;
                 const value = self.environment.get(name);
                 if (value) |v| {
+                    if (v.isString()) {
+                        const str = v.getString();
+                        return Value.init(.{ .string = str }, self.allocator);
+                    }
                     return v;
                 } else {
                     const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
@@ -111,7 +121,9 @@ pub const Interpreter = struct {
 
     fn evaluate_binary(self: *Interpreter, expr: *Expr.BinaryExpr) anyerror!Value {
         var left = try self.evaluate(expr.left);
+        defer left.deinit();
         var right = try self.evaluate(expr.right);
+        defer right.deinit();
 
         switch (expr.operator.type) {
             .MINUS => {
