@@ -18,10 +18,7 @@ pub const Stmt = union(enum) {
                 allocator.destroy(e);
             },
             .block => |b| {
-                for (b.statements) |stmt| {
-                    stmt.deinit(allocator);
-                }
-                allocator.destroy(b);
+                b.deinit(allocator);
             },
         }
     }
@@ -57,14 +54,64 @@ pub const Stmt = union(enum) {
     };
 
     pub const BlockStmt = struct {
-        statements: []*Stmt,
+        statements: []*Declaration,
 
-        pub fn create(allocator: Allocator, statements: []*Stmt) !*Stmt {
+        pub fn create(allocator: Allocator, statements: []*Declaration) !*Stmt {
             const stmt = try allocator.create(BlockStmt);
             stmt.* = BlockStmt{ .statements = statements };
             const result = try allocator.create(Stmt);
             result.* = Stmt{ .block = stmt };
             return result;
         }
+
+        pub fn deinit(self: *BlockStmt, allocator: Allocator) void {
+            for (self.statements) |decl| {
+                decl.deinit(allocator);
+            }
+            allocator.free(self.statements);
+            allocator.destroy(self);
+        }
     };
+};
+
+pub const Declaration = union(enum) {
+    stmt: *Stmt,
+    var_decl: *VarDecl,
+
+    pub fn deinit(self: *Declaration, allocator: Allocator) void {
+        switch (self.*) {
+            .stmt => |s| {
+                s.deinit(allocator);
+                allocator.destroy(s);
+            },
+            .var_decl => |v| {
+                v.deinit(allocator);
+                allocator.destroy(v);
+            },
+        }
+        allocator.destroy(self);
+    }
+};
+
+pub const VarDecl = struct {
+    name: []const u8,
+    initializer: ?*Expr,
+
+    pub fn create(allocator: Allocator, name: []const u8, initializer: ?*Expr) !*Declaration {
+        const decl = try allocator.create(VarDecl);
+        decl.* = VarDecl{
+            .name = name,
+            .initializer = initializer,
+        };
+
+        const result = try allocator.create(Declaration);
+        result.* = Declaration{ .var_decl = decl };
+        return result;
+    }
+
+    pub fn deinit(self: *VarDecl, allocator: Allocator) void {
+        if (self.initializer) |init| {
+            init.deinit(allocator);
+        }
+    }
 };

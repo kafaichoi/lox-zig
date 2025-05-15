@@ -2,7 +2,7 @@ const std = @import("std");
 const Scanner = @import("./scanner.zig").Scanner;
 const Parser = @import("./parser.zig").Parser;
 const Interpreter = @import("./interpreter.zig").Interpreter;
-const Declaration = @import("./decl.zig").Declaration;
+const Declaration = @import("./ast.zig").Declaration;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

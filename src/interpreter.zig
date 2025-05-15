@@ -1,9 +1,9 @@
 const std = @import("std");
 const Expr = @import("./expr.zig").Expr;
 const Value = @import("./expr.zig").Value;
-const Stmt = @import("./stmt.zig").Stmt;
-const Declaration = @import("./decl.zig").Declaration;
-const VarDecl = @import("./decl.zig").VarDecl;
+const Stmt = @import("./ast.zig").Stmt;
+const Declaration = @import("./ast.zig").Declaration;
+const VarDecl = @import("./ast.zig").VarDecl;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 const ValueType = @import("./expr.zig").ValueType;
@@ -55,15 +55,11 @@ pub const Interpreter = struct {
         var value = Value.init(.{ .nil = {} }, null);
         if (decl.initializer) |init_expr| {
             value = try self.evaluate(init_expr);
-            if (value.isString()) {
-                const str = value.getString();
-                value = Value.init(.{ .string = str }, self.allocator);
-            }
         }
         try self.environment.put(decl.name, value);
     }
 
-    fn execute(self: *Interpreter, stmt: *Stmt) !void {
+    fn execute(self: *Interpreter, stmt: *Stmt) anyerror!void {
         switch (stmt.*) {
             .print => |p| {
                 var value = try self.evaluate(p.expression);
@@ -83,9 +79,7 @@ pub const Interpreter = struct {
                 defer value.deinit();
             },
             .block => |b| {
-                for (b.statements) |block_stmt| {
-                    try self.execute(block_stmt);
-                }
+                for (b.statements) |decl| try self.execute_declaration(decl);
             },
         }
     }
@@ -95,21 +89,11 @@ pub const Interpreter = struct {
             .binary => |b| try self.evaluate_binary(b),
             .unary => |u| try self.evaluate_unary(u),
             .grouping => |g| try self.evaluate(g.expression),
-            .literal => |l| {
-                if (l.value.isString()) {
-                    const str = l.value.getString();
-                    return Value.init(.{ .string = str }, self.allocator);
-                }
-                return l.value;
-            },
+            .literal => |l| l.value,
             .variable => |var_expr| {
                 const name = var_expr.name.lexeme;
                 const value = self.environment.get(name);
                 if (value) |v| {
-                    if (v.isString()) {
-                        const str = v.getString();
-                        return Value.init(.{ .string = str }, self.allocator);
-                    }
                     return v;
                 } else {
                     const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
@@ -184,8 +168,12 @@ pub const Interpreter = struct {
                     var result = std.ArrayList(u8).init(self.allocator);
                     try result.appendSlice(left.getString());
                     try result.appendSlice(right.getString());
-                    defer result.deinit();
-                    return Value.init(.{ .string = result.items }, self.allocator);
+                    const concatenated = try result.toOwnedSlice();
+                    return Value{
+                        .data = .{ .string = concatenated },
+                        .allocator = self.allocator,
+                        .owned = true,
+                    };
                 }
                 const message = try self.allocator.dupe(u8, "Operands must be two numbers or two strings.");
                 self.runtime_error = RuntimeError{
@@ -408,11 +396,13 @@ test "string concatenation" {
     defer interpreter.deinit();
 
     const plus_op = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
+    const left_str = Value.init_borrowed(.{ .string = "hello " }, std.testing.allocator);
+    const right_str = Value.init_borrowed(.{ .string = "world" }, std.testing.allocator);
     const concat_expr = try Expr.BinaryExpr.create(
         std.testing.allocator,
-        try Expr.LiteralExpr.create(std.testing.allocator, Value.init(.{ .string = "hello " }, std.testing.allocator)),
+        try Expr.LiteralExpr.create(std.testing.allocator, left_str),
         plus_op,
-        try Expr.LiteralExpr.create(std.testing.allocator, Value.init(.{ .string = "world" }, std.testing.allocator)),
+        try Expr.LiteralExpr.create(std.testing.allocator, right_str),
     );
     defer concat_expr.deinit(std.testing.allocator);
 
@@ -429,7 +419,7 @@ test "type error handling" {
 
     // Create a number and a string
     const number = try Expr.LiteralExpr.create(allocator, Value.init(.{ .double = 42.0 }, null));
-    const string = try Expr.LiteralExpr.create(allocator, Value.init(.{ .string = "hello" }, std.testing.allocator));
+    const string = try Expr.LiteralExpr.create(allocator, Value.init_borrowed(.{ .string = "hello" }, std.testing.allocator));
 
     // Try to add them
     const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };

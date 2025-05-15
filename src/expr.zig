@@ -14,21 +14,28 @@ pub const ValueType = union(enum) {
 pub const Value = struct {
     data: ValueType,
     allocator: ?std.mem.Allocator,
+    owned: bool, // Whether this Value owns its string data
 
     pub fn init(data: ValueType, allocator: ?std.mem.Allocator) Value {
         if (@as(std.meta.Tag(ValueType), data) == .string) {
             std.debug.assert(allocator != null);
             const s = data.string;
             const heap_str = allocator.?.dupe(u8, s) catch unreachable;
-            return .{ .data = .{ .string = heap_str }, .allocator = allocator };
+            return .{ .data = .{ .string = heap_str }, .allocator = allocator, .owned = true };
         }
-        return .{ .data = data, .allocator = allocator };
+        return .{ .data = data, .allocator = allocator, .owned = false };
+    }
+
+    pub fn init_borrowed(data: ValueType, allocator: ?std.mem.Allocator) Value {
+        return .{ .data = data, .allocator = allocator, .owned = false };
     }
 
     pub fn deinit(self: *Value) void {
         if (self.allocator) |allocator| {
             switch (self.data) {
-                .string => |s| allocator.free(s),
+                .string => |s| {
+                    if (self.owned) allocator.free(s);
+                },
                 else => {},
             }
         }

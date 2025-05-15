@@ -1,31 +1,19 @@
-print "one";
-print true;
-print 2 + 1;
-
-// Test nil equality
-print nil == nil;  // Should print: true
-print nil == 42;   // Should print: false
-print 42 == nil;   // Should print: false
-
-// Test boolean operations
-print true == true;    // Should print: true
-print true == false;   // Should print: false
-print true != false;   // Should print: true
-print false != false;  // Should print: false
-
-// Test string concatenation
-print "hello" + " world";  // Should print: hello world
-
-// Test type errors
-print "hello" + 42;  // Should error: Operands must be two numbers or two strings
-print 42 + "hello";  // Should error: Operands must be two numbers or two strings
-
-// Test variable declarations
-var x = nil;
-print x;  // Should print: nil
-
-var y = "hello";
-print y + " world";  // Should print: hello world
-
-// Test undefined variable
-print undefined;  // Should error: Undefined variable 'undefined'
+var a = "global a";
+var b = "global b";
+var c = "global c";
+{
+  var a = "outer a";
+  var b = "outer b";
+  {
+    var a = "inner a";
+    print a;
+    print b;
+    print c;
+  }
+  print a;
+  print b;
+  print c;
+}
+print a;
+print b;
+print c;

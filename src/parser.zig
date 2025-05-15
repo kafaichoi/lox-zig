@@ -3,9 +3,9 @@ const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 const Expr = @import("./expr.zig").Expr;
 const Value = @import("./expr.zig").Value;
-const Stmt = @import("./stmt.zig").Stmt;
-const Declaration = @import("./decl.zig").Declaration;
-const VarDecl = @import("./decl.zig").VarDecl;
+const Stmt = @import("./ast.zig").Stmt;
+const Declaration = @import("./ast.zig").Declaration;
+const VarDecl = @import("./ast.zig").VarDecl;
 const Allocator = std.mem.Allocator;
 
 // Parser error type
@@ -108,13 +108,15 @@ pub const Parser = struct {
     }
 
     fn block_statement(self: *Parser) ParserError!*Stmt {
-        var statements = std.ArrayList(*Stmt).init(self.allocator);
+        var declarations = std.ArrayList(*Declaration).init(self.allocator);
+        defer declarations.deinit();
+
         while (!self.check(.RIGHT_BRACE) and !self.isAtEnd()) {
-            const stmt = try self.statement();
-            try statements.append(stmt);
+            const decl = try self.declaration();
+            try declarations.append(decl);
         }
         _ = try self.consume(.RIGHT_BRACE, "Expect '}' after block.");
-        return try Stmt.BlockStmt.create(self.allocator, try statements.toOwnedSlice());
+        return try Stmt.BlockStmt.create(self.allocator, try declarations.toOwnedSlice());
     }
 
     fn expression(self: *Parser) ParserError!*Expr {
@@ -189,7 +191,7 @@ pub const Parser = struct {
             // Convert from TokenLiteral to Value
             const value: Value = switch (token_literal) {
                 .double => |d| Value.init(.{ .double = d }, null),
-                .string => |s| Value.init(.{ .string = s }, self.allocator),
+                .string => |s| Value.init_borrowed(.{ .string = s }, self.allocator),
                 else => Value.init(.{ .nil = {} }, null),
             };
             return try Expr.LiteralExpr.create(self.allocator, value);
