@@ -90,6 +90,11 @@ pub const Parser = struct {
         if (self.match(&.{.PRINT})) {
             return self.print_statement();
         }
+
+        if (self.match(&.{.WHILE})) {
+            return self.match_statement();
+        }
+
         if (self.match(&.{.LEFT_BRACE})) {
             return self.block_statement();
         }
@@ -112,6 +117,14 @@ pub const Parser = struct {
         const value = try self.expression();
         _ = try self.consume(.SEMICOLON, "Expect ';' after value.");
         return try Stmt.PrintStmt.create(self.allocator, value);
+    }
+
+    fn match_statement(self: *Parser) ParserError!*Stmt {
+        _ = try self.consume(.LEFT_PAREN, "Expect '(' after 'if'.");
+        const condition = try self.expression();
+        _ = try self.consume(.RIGHT_PARENS, "Expect ')' after if condition.");
+        const body = try self.statement();
+        return try Stmt.WhileStmt.create(self.allocator, condition, body);
     }
 
     fn expression_statement(self: *Parser) ParserError!*Stmt {

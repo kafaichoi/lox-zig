@@ -7,6 +7,7 @@ pub const Stmt = union(enum) {
     expression: *ExpressionStmt,
     block: *BlockStmt,
     if_stmt: *IfStmt,
+    while_stmt: *WhileStmt,
 
     pub fn deinit(self: *Stmt, allocator: Allocator) void {
         switch (self.*) {
@@ -22,6 +23,7 @@ pub const Stmt = union(enum) {
                 b.deinit(allocator);
             },
             .if_stmt => |i| i.deinit(allocator),
+            .while_stmt => |w| w.deinit(allocator),
         }
         allocator.destroy(self);
     }
@@ -93,6 +95,28 @@ pub const Stmt = union(enum) {
             if (self.else_branch) |else_stmt| {
                 else_stmt.deinit(allocator);
             }
+            allocator.destroy(self);
+        }
+    };
+
+    pub const WhileStmt = struct {
+        condition: *Expr,
+        body: *Stmt,
+
+        pub fn create(allocator: Allocator, condition: *Expr, body: *Stmt) !*Stmt {
+            const stmt = try allocator.create(WhileStmt);
+            stmt.* = .{
+                .condition = condition,
+                .body = body,
+            };
+            const result = try allocator.create(Stmt);
+            result.* = .{ .while_stmt = stmt };
+            return result;
+        }
+
+        pub fn deinit(self: *WhileStmt, allocator: Allocator) void {
+            self.condition.deinit(allocator);
+            self.body.deinit(allocator);
             allocator.destroy(self);
         }
     };

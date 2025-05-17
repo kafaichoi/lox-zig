@@ -102,6 +102,11 @@ pub const Interpreter = struct {
                     try self.execute(else_stmt);
                 }
             },
+            .while_stmt => |w| {
+                while (is_truthy(try self.evaluate(w.condition))) {
+                    try self.execute(w.body);
+                }
+            },
         }
     }
 
