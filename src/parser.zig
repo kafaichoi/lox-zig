@@ -84,15 +84,28 @@ pub const Parser = struct {
     }
 
     fn statement(self: *Parser) ParserError!*Stmt {
+        if (self.match(&.{.IF})) {
+            return self.if_statement();
+        }
         if (self.match(&.{.PRINT})) {
             return self.print_statement();
         }
-
         if (self.match(&.{.LEFT_BRACE})) {
             return self.block_statement();
         }
-
         return self.expression_statement();
+    }
+
+    fn if_statement(self: *Parser) ParserError!*Stmt {
+        _ = try self.consume(.LEFT_PAREN, "Expect '(' after 'if'.");
+        const condition = try self.expression();
+        _ = try self.consume(.RIGHT_PARENS, "Expect ')' after if condition.");
+        const then_branch = try self.statement();
+        var else_branch: ?*Stmt = null;
+        if (self.match(&.{.ELSE})) {
+            else_branch = try self.statement();
+        }
+        return try Stmt.IfStmt.create(self.allocator, condition, then_branch, else_branch);
     }
 
     fn print_statement(self: *Parser) ParserError!*Stmt {

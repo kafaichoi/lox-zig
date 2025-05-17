@@ -93,6 +93,15 @@ pub const Interpreter = struct {
                 }
                 for (b.statements) |decl| try self.execute_declaration(decl);
             },
+            .if_stmt => |i| {
+                var cond_value = try self.evaluate(i.condition);
+                defer cond_value.deinit();
+                if (is_truthy(cond_value)) {
+                    try self.execute(i.then_branch);
+                } else if (i.else_branch) |else_stmt| {
+                    try self.execute(else_stmt);
+                }
+            },
         }
     }
 
@@ -527,4 +536,41 @@ test "nil handling" {
 
     const neq_result = try interpreter.evaluate(neq_expr);
     try std.testing.expectEqual(Value.init(.{ .boolean = false }, null), neq_result);
+}
+
+test "if statement" {
+    const allocator = std.testing.allocator;
+    var interpreter = Interpreter.init(allocator);
+    defer interpreter.deinit();
+
+    // Set up output capture
+    var output = std.ArrayList(u8).init(allocator);
+    defer output.deinit();
+    interpreter.writer = &output;
+
+    // Create a true condition
+    const true_cond = try Expr.LiteralExpr.create(allocator, Value.init(.{ .boolean = true }, null));
+    // Create a print statement for the then branch
+    const then_print1 = try Stmt.PrintStmt.create(allocator, try Expr.LiteralExpr.create(allocator, Value.init_borrowed(.{ .string = "true" })));
+    // Create an if statement with no else branch
+    const if_stmt = try Stmt.IfStmt.create(allocator, true_cond, then_print1, null);
+    defer if_stmt.deinit(allocator);
+
+    // Execute the if statement
+    try interpreter.execute(if_stmt);
+    try std.testing.expectEqualStrings("true\n", output.items);
+    output.clearRetainingCapacity();
+
+    // Create a false condition
+    const false_cond = try Expr.LiteralExpr.create(allocator, Value.init(.{ .boolean = false }, null));
+    // Create print statements for the if-else statement
+    const then_print2 = try Stmt.PrintStmt.create(allocator, try Expr.LiteralExpr.create(allocator, Value.init_borrowed(.{ .string = "true" })));
+    const else_print = try Stmt.PrintStmt.create(allocator, try Expr.LiteralExpr.create(allocator, Value.init_borrowed(.{ .string = "false" })));
+    // Create an if statement with an else branch
+    const if_else_stmt = try Stmt.IfStmt.create(allocator, false_cond, then_print2, else_print);
+    defer if_else_stmt.deinit(allocator);
+
+    // Execute the if-else statement
+    try interpreter.execute(if_else_stmt);
+    try std.testing.expectEqualStrings("false\n", output.items);
 }

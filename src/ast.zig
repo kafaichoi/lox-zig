@@ -6,6 +6,7 @@ pub const Stmt = union(enum) {
     print: *PrintStmt,
     expression: *ExpressionStmt,
     block: *BlockStmt,
+    if_stmt: *IfStmt,
 
     pub fn deinit(self: *Stmt, allocator: Allocator) void {
         switch (self.*) {
@@ -20,6 +21,7 @@ pub const Stmt = union(enum) {
             .block => |b| {
                 b.deinit(allocator);
             },
+            .if_stmt => |i| i.deinit(allocator),
         }
         allocator.destroy(self);
     }
@@ -64,6 +66,33 @@ pub const Stmt = union(enum) {
                 decl.deinit(allocator);
             }
             allocator.free(self.statements);
+            allocator.destroy(self);
+        }
+    };
+
+    pub const IfStmt = struct {
+        condition: *Expr,
+        then_branch: *Stmt,
+        else_branch: ?*Stmt,
+
+        pub fn create(allocator: Allocator, condition: *Expr, then_branch: *Stmt, else_branch: ?*Stmt) !*Stmt {
+            const stmt = try allocator.create(IfStmt);
+            stmt.* = .{
+                .condition = condition,
+                .then_branch = then_branch,
+                .else_branch = else_branch,
+            };
+            const result = try allocator.create(Stmt);
+            result.* = .{ .if_stmt = stmt };
+            return result;
+        }
+
+        pub fn deinit(self: *IfStmt, allocator: Allocator) void {
+            self.condition.deinit(allocator);
+            self.then_branch.deinit(allocator);
+            if (self.else_branch) |else_stmt| {
+                else_stmt.deinit(allocator);
+            }
             allocator.destroy(self);
         }
     };
