@@ -95,6 +95,10 @@ pub const Parser = struct {
             return self.match_statement();
         }
 
+        if (self.match(&.{.FOR})) {
+            return self.for_statement();
+        }
+
         if (self.match(&.{.LEFT_BRACE})) {
             return self.block_statement();
         }
@@ -125,6 +129,71 @@ pub const Parser = struct {
         _ = try self.consume(.RIGHT_PARENS, "Expect ')' after if condition.");
         const body = try self.statement();
         return try Stmt.WhileStmt.create(self.allocator, condition, body);
+    }
+
+    fn for_statement(self: *Parser) ParserError!*Stmt {
+        _ = try self.consume(.LEFT_PAREN, "Expect '(' after 'for'.");
+
+        // Parse initializer
+        var initializer: ?*Declaration = null;
+        if (!self.match(&.{.SEMICOLON})) {
+            if (self.match(&.{.VAR})) {
+                initializer = try self.var_declaration();
+            } else {
+                const expr = try self.expression();
+                _ = try self.consume(.SEMICOLON, "Expect ';' after loop condition.");
+                const stmt = try Stmt.ExpressionStmt.create(self.allocator, expr);
+                initializer = try self.allocator.create(Declaration);
+                initializer.?.* = Declaration{ .stmt = stmt };
+            }
+        } else {
+            _ = try self.consume(.SEMICOLON, "Expect ';' after for clause.");
+        }
+
+        // Parse condition
+        var condition: ?*Expr = null;
+        if (!self.check(.SEMICOLON)) {
+            condition = try self.expression();
+        }
+        _ = try self.consume(.SEMICOLON, "Expect ';' after for clause.");
+
+        // Parse increment
+        var increment: ?*Expr = null;
+        if (!self.check(.RIGHT_PARENS)) {
+            increment = try self.expression();
+        }
+        _ = try self.consume(.RIGHT_PARENS, "Expect ')' after for clauses.");
+
+        // Parse body
+        var body = try self.statement();
+
+        // Add increment to body if it exists
+        if (increment != null) {
+            const increment_stmt = try Stmt.ExpressionStmt.create(self.allocator, increment.?);
+            var declarations = try self.allocator.alloc(*Declaration, 2);
+            declarations[0] = try self.allocator.create(Declaration);
+            declarations[0].* = Declaration{ .stmt = body };
+            declarations[1] = try self.allocator.create(Declaration);
+            declarations[1].* = Declaration{ .stmt = increment_stmt };
+            body = try Stmt.BlockStmt.create(self.allocator, declarations);
+        }
+
+        // Create while loop
+        if (condition == null) {
+            condition = try Expr.LiteralExpr.create(self.allocator, Value.init(.{ .boolean = true }, null));
+        }
+        const loop = try Stmt.WhileStmt.create(self.allocator, condition.?, body);
+
+        // Add initializer if it exists
+        if (initializer != null) {
+            var declarations = try self.allocator.alloc(*Declaration, 2);
+            declarations[0] = initializer.?;
+            declarations[1] = try self.allocator.create(Declaration);
+            declarations[1].* = Declaration{ .stmt = loop };
+            return try Stmt.BlockStmt.create(self.allocator, declarations);
+        }
+
+        return loop;
     }
 
     fn expression_statement(self: *Parser) ParserError!*Stmt {
