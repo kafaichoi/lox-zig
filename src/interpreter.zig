@@ -91,7 +91,12 @@ pub const Interpreter = struct {
                     block_env.deinit();
                     self.allocator.destroy(block_env);
                 }
-                for (b.statements) |decl| try self.execute_declaration(decl);
+                for (b.statements) |decl| {
+                    self.execute_declaration(decl) catch |err| switch (err) {
+                        error.Break => return error.Break,
+                        else => return err,
+                    };
+                }
             },
             .if_stmt => |i| {
                 var cond_value = try self.evaluate(i.condition);
@@ -104,9 +109,10 @@ pub const Interpreter = struct {
             },
             .while_stmt => |w| {
                 while (is_truthy(try self.evaluate(w.condition))) {
-                    const result = try self.execute(w.body);
-                    if (result == error.Break) break;
-                    return result;
+                    self.execute(w.body) catch |err| switch (err) {
+                        error.Break => break,
+                        else => return err,
+                    };
                 }
             },
             .break_stmt => |_| {
@@ -137,29 +143,16 @@ pub const Interpreter = struct {
             },
             .assign => |a| {
                 const value = try self.evaluate(a.value);
-                if (self.environment.variables.contains(a.name.lexeme)) {
-                    if (self.environment.variables.getPtr(a.name.lexeme)) |state| {
-                        state.value.deinit();
-                        state.* = .{ .value = value, .initialized = true };
-                    }
-                    return value;
-                } else if (self.environment.enclosing) |parent| {
-                    // Try to assign in the enclosing scope
-                    if (parent.variables.contains(a.name.lexeme)) {
-                        if (parent.variables.getPtr(a.name.lexeme)) |state| {
-                            state.value.deinit();
-                            state.* = .{ .value = value, .initialized = true };
-                        }
-                        return value;
-                    }
-                }
-                const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
-                self.runtime_error = RuntimeError{
-                    .message = message,
-                    .token = a.name,
+                self.environment.assign(a.name.lexeme, value) catch {
+                    const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
+                    self.runtime_error = RuntimeError{
+                        .message = message,
+                        .token = a.name,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
                 };
-                self.had_error = true;
-                return error.RuntimeError;
+                return value;
             },
             .logical => |l| try self.evaluate_logical(l),
         };
