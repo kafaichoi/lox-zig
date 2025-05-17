@@ -8,6 +8,7 @@ pub const Stmt = union(enum) {
     block: *BlockStmt,
     if_stmt: *IfStmt,
     while_stmt: *WhileStmt,
+    break_stmt: *BreakStmt,
 
     pub fn deinit(self: *Stmt, allocator: Allocator) void {
         switch (self.*) {
@@ -24,6 +25,9 @@ pub const Stmt = union(enum) {
             },
             .if_stmt => |i| i.deinit(allocator),
             .while_stmt => |w| w.deinit(allocator),
+            .break_stmt => |b| {
+                allocator.destroy(b);
+            },
         }
         allocator.destroy(self);
     }
@@ -118,6 +122,16 @@ pub const Stmt = union(enum) {
             self.condition.deinit(allocator);
             self.body.deinit(allocator);
             allocator.destroy(self);
+        }
+    };
+
+    pub const BreakStmt = struct {
+        pub fn create(allocator: Allocator) !*Stmt {
+            const stmt = try allocator.create(BreakStmt);
+            stmt.* = .{};
+            const result = try allocator.create(Stmt);
+            result.* = .{ .break_stmt = stmt };
+            return result;
         }
     };
 };

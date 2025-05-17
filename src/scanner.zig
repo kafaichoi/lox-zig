@@ -46,6 +46,7 @@ pub const TokenType = enum {
     TRUE,
     VAR,
     WHILE,
+    BREAK,
 
     EOF,
     ERROR,
@@ -68,6 +69,7 @@ const keywords = std.StaticStringMap(TokenType).initComptime(.{
     .{ "true", .TRUE },
     .{ "var", .VAR },
     .{ "while", .WHILE },
+    .{ "break", .BREAK },
 });
 
 pub const TokenLiteral = union(enum) {

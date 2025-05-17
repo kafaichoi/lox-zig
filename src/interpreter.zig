@@ -104,8 +104,13 @@ pub const Interpreter = struct {
             },
             .while_stmt => |w| {
                 while (is_truthy(try self.evaluate(w.condition))) {
-                    try self.execute(w.body);
+                    const result = try self.execute(w.body);
+                    if (result == error.Break) break;
+                    return result;
                 }
+            },
+            .break_stmt => |_| {
+                return error.Break;
             },
         }
     }

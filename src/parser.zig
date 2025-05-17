@@ -102,6 +102,11 @@ pub const Parser = struct {
         if (self.match(&.{.LEFT_BRACE})) {
             return self.block_statement();
         }
+
+        if (self.match(&.{.BREAK})) {
+            return self.break_statement();
+        }
+
         return self.expression_statement();
     }
 
@@ -420,6 +425,11 @@ pub const Parser = struct {
         }
 
         return expr;
+    }
+
+    fn break_statement(self: *Parser) ParserError!*Stmt {
+        _ = try self.consume(.SEMICOLON, "Expect ';' after 'break'.");
+        return try Stmt.BreakStmt.create(self.allocator);
     }
 };
 
