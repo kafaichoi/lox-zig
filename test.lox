@@ -1,2 +1,5 @@
-if (true) { print "true"; }
-if (false) { print "true"; } else { print "false"; }
+var x = 0;
+while (x < 10) {
+    print x;
+    x = x + 1;
+}

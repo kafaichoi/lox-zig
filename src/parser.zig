@@ -146,11 +146,11 @@ pub const Parser = struct {
     }
 
     fn expression(self: *Parser) ParserError!*Expr {
-        return try self.or_expr();
+        return try self.assignment();
     }
 
     fn assignment(self: *Parser) ParserError!*Expr {
-        const expr = try self.equality();
+        const expr = try self.or_expr();
 
         if (self.match(&.{.EQUAL})) {
             const value = try self.assignment();
