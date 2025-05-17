@@ -79,11 +79,12 @@ pub const Value = struct {
 // Base expression interface
 pub const Expr = union(enum) {
     binary: *BinaryExpr,
+    unary: *UnaryExpr,
     grouping: *GroupingExpr,
     literal: *LiteralExpr,
-    unary: *UnaryExpr,
     variable: *VariableExpr,
     assign: *AssignExpr,
+    logical: *LogicalExpr,
 
     // Free memory recursively
     pub fn deinit(self: *Expr, allocator: Allocator) void {
@@ -93,6 +94,10 @@ pub const Expr = union(enum) {
                 b.right.deinit(allocator);
                 allocator.destroy(b);
             },
+            .unary => |u| {
+                u.right.deinit(allocator);
+                allocator.destroy(u);
+            },
             .grouping => |g| {
                 g.expression.deinit(allocator);
                 allocator.destroy(g);
@@ -101,16 +106,17 @@ pub const Expr = union(enum) {
                 l.value.deinit();
                 allocator.destroy(l);
             },
-            .unary => |u| {
-                u.right.deinit(allocator);
-                allocator.destroy(u);
-            },
             .variable => |v| {
                 allocator.destroy(v);
             },
             .assign => |a| {
                 a.value.deinit(allocator);
                 allocator.destroy(a);
+            },
+            .logical => |l| {
+                l.left.deinit(allocator);
+                l.right.deinit(allocator);
+                allocator.destroy(l);
             },
         }
         allocator.destroy(self);
@@ -222,6 +228,24 @@ pub const Expr = union(enum) {
 
             const result = try allocator.create(Expr);
             result.* = Expr{ .assign = expr };
+            return result;
+        }
+    };
+
+    pub const LogicalExpr = struct {
+        left: *Expr,
+        operator: Token,
+        right: *Expr,
+
+        pub fn create(allocator: Allocator, left: *Expr, operator: Token, right: *Expr) !*Expr {
+            const expr = try allocator.create(LogicalExpr);
+            expr.* = .{
+                .left = left,
+                .operator = operator,
+                .right = right,
+            };
+            const result = try allocator.create(Expr);
+            result.* = .{ .logical = expr };
             return result;
         }
     };

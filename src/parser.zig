@@ -133,7 +133,7 @@ pub const Parser = struct {
     }
 
     fn expression(self: *Parser) ParserError!*Expr {
-        return try self.assignment();
+        return try self.or_expr();
     }
 
     fn assignment(self: *Parser) ParserError!*Expr {
@@ -308,6 +308,30 @@ pub const Parser = struct {
 
     fn previous(self: *Parser) Token {
         return self.tokens[self.current - 1];
+    }
+
+    fn or_expr(self: *Parser) ParserError!*Expr {
+        var expr = try self.and_expr();
+
+        while (self.match(&.{.OR})) {
+            const operator = self.previous();
+            const right = try self.and_expr();
+            expr = try Expr.LogicalExpr.create(self.allocator, expr, operator, right);
+        }
+
+        return expr;
+    }
+
+    fn and_expr(self: *Parser) ParserError!*Expr {
+        var expr = try self.equality();
+
+        while (self.match(&.{.AND})) {
+            const operator = self.previous();
+            const right = try self.equality();
+            expr = try Expr.LogicalExpr.create(self.allocator, expr, operator, right);
+        }
+
+        return expr;
     }
 };
 
