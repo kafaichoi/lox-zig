@@ -157,9 +157,15 @@ pub const Parser = struct {
 
             if (expr.* == .variable) {
                 const name = expr.variable.name;
+                // Free the original variable expression since we're creating a new AssignExpr
+                expr.deinit(self.allocator);
                 return try Expr.AssignExpr.create(self.allocator, name, value);
             }
 
+            // If we get here, we have an invalid assignment target
+            // Free both expressions since we're not using them
+            expr.deinit(self.allocator);
+            value.deinit(self.allocator);
             return self.errorExpr("Invalid assignment target.");
         }
 
