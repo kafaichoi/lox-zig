@@ -21,6 +21,7 @@ pub const Stmt = union(enum) {
                 b.deinit(allocator);
             },
         }
+        allocator.destroy(self);
     }
 
     pub const PrintStmt = struct {
@@ -28,12 +29,9 @@ pub const Stmt = union(enum) {
 
         pub fn create(allocator: Allocator, expression: *Expr) !*Stmt {
             const stmt = try allocator.create(PrintStmt);
-            stmt.* = PrintStmt{
-                .expression = expression,
-            };
-
+            stmt.* = .{ .expression = expression };
             const result = try allocator.create(Stmt);
-            result.* = Stmt{ .print = stmt };
+            result.* = .{ .print = stmt };
             return result;
         }
     };
@@ -43,12 +41,9 @@ pub const Stmt = union(enum) {
 
         pub fn create(allocator: Allocator, expression: *Expr) !*Stmt {
             const stmt = try allocator.create(ExpressionStmt);
-            stmt.* = ExpressionStmt{
-                .expression = expression,
-            };
-
+            stmt.* = .{ .expression = expression };
             const result = try allocator.create(Stmt);
-            result.* = Stmt{ .expression = stmt };
+            result.* = .{ .expression = stmt };
             return result;
         }
     };
@@ -58,9 +53,9 @@ pub const Stmt = union(enum) {
 
         pub fn create(allocator: Allocator, statements: []*Declaration) !*Stmt {
             const stmt = try allocator.create(BlockStmt);
-            stmt.* = BlockStmt{ .statements = statements };
+            stmt.* = .{ .statements = statements };
             const result = try allocator.create(Stmt);
-            result.* = Stmt{ .block = stmt };
+            result.* = .{ .block = stmt };
             return result;
         }
 
@@ -80,14 +75,8 @@ pub const Declaration = union(enum) {
 
     pub fn deinit(self: *Declaration, allocator: Allocator) void {
         switch (self.*) {
-            .stmt => |s| {
-                s.deinit(allocator);
-                allocator.destroy(s);
-            },
-            .var_decl => |v| {
-                v.deinit(allocator);
-                allocator.destroy(v);
-            },
+            .stmt => |s| s.deinit(allocator),
+            .var_decl => |v| v.deinit(allocator),
         }
         allocator.destroy(self);
     }
@@ -99,13 +88,12 @@ pub const VarDecl = struct {
 
     pub fn create(allocator: Allocator, name: []const u8, initializer: ?*Expr) !*Declaration {
         const decl = try allocator.create(VarDecl);
-        decl.* = VarDecl{
+        decl.* = .{
             .name = name,
             .initializer = initializer,
         };
-
         const result = try allocator.create(Declaration);
-        result.* = Declaration{ .var_decl = decl };
+        result.* = .{ .var_decl = decl };
         return result;
     }
 
@@ -113,5 +101,6 @@ pub const VarDecl = struct {
         if (self.initializer) |init| {
             init.deinit(allocator);
         }
+        allocator.destroy(self);
     }
 };

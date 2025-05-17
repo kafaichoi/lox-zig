@@ -118,21 +118,19 @@ pub const Interpreter = struct {
             },
             .assign => |a| {
                 const value = try self.evaluate(a.value);
-                if (self.environment.values.contains(a.name.lexeme)) {
-                    if (self.environment.values.getPtr(a.name.lexeme)) |old_value| {
-                        old_value.deinit();
+                if (self.environment.variables.contains(a.name.lexeme)) {
+                    if (self.environment.variables.getPtr(a.name.lexeme)) |state| {
+                        state.value.deinit();
+                        state.* = .{ .value = value, .initialized = true };
                     }
-                    try self.environment.values.put(a.name.lexeme, value);
-                    try self.environment.initialized.put(a.name.lexeme, true);
                     return value;
                 } else if (self.environment.enclosing) |parent| {
                     // Try to assign in the enclosing scope
-                    if (parent.values.contains(a.name.lexeme)) {
-                        if (parent.values.getPtr(a.name.lexeme)) |old_value| {
-                            old_value.deinit();
+                    if (parent.variables.contains(a.name.lexeme)) {
+                        if (parent.variables.getPtr(a.name.lexeme)) |state| {
+                            state.value.deinit();
+                            state.* = .{ .value = value, .initialized = true };
                         }
-                        try parent.values.put(a.name.lexeme, value);
-                        try parent.initialized.put(a.name.lexeme, true);
                         return value;
                     }
                 }
@@ -211,7 +209,6 @@ pub const Interpreter = struct {
                     return Value{
                         .data = .{ .string = concatenated },
                         .allocator = self.allocator,
-                        .owned = true,
                     };
                 }
                 const message = try self.allocator.dupe(u8, "Operands must be two numbers or two strings.");
@@ -436,8 +433,8 @@ test "string concatenation" {
     defer interpreter.deinit();
 
     const plus_op = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
-    const left_str = Value.init_borrowed(.{ .string = "hello " }, std.testing.allocator);
-    const right_str = Value.init_borrowed(.{ .string = "world" }, std.testing.allocator);
+    const left_str = Value.init_borrowed(.{ .string = "hello " });
+    const right_str = Value.init_borrowed(.{ .string = "world" });
     const concat_expr = try Expr.BinaryExpr.create(
         std.testing.allocator,
         try Expr.LiteralExpr.create(std.testing.allocator, left_str),
@@ -459,7 +456,7 @@ test "type error handling" {
 
     // Create a number and a string
     const number = try Expr.LiteralExpr.create(allocator, Value.init(.{ .double = 42.0 }, null));
-    const string = try Expr.LiteralExpr.create(allocator, Value.init_borrowed(.{ .string = "hello" }, std.testing.allocator));
+    const string = try Expr.LiteralExpr.create(allocator, Value.init_borrowed(.{ .string = "hello" }));
 
     // Try to add them
     const operator = Token{ .type = .PLUS, .lexeme = "+", .literal = .{ .none = {} }, .line = 1 };
