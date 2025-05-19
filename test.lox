@@ -1,24 +1,6 @@
-fun add(a, b) {
-    return a + b;
+fun scope(a) {
+  var a = "local";
+  print a;
 }
 
-fun mul(a, b) {
-    return a * b;
-}
-
-fun apply(f, a, b) {
-    return f(a, b);
-}
-
-// Call functions
-print "add(1, 2):";
-print add(1, 2);           // Should print 3
-
-print "mul(3, 4):";
-print mul(3, 4);           // Should print 12 
-
-print "apply(add, 5, 6):";
-print apply(add, 5, 6);    // Should print 11
-
-print "apply(mul, 7, 8):";
-print apply(mul, 7, 8);    // Should print 56
+scope("pass");

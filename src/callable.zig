@@ -20,6 +20,7 @@ pub const FunctionObject = struct {
     closure: *Environment,
 
     pub fn init(declaration: *FuncDecl, closure: *Environment) FunctionObject {
+        // Make a duplicate of the closure environment to avoid use-after-free
         return FunctionObject{
             .declaration = declaration,
             .closure = closure,

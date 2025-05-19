@@ -1,0 +1,11 @@
+// Function returning another function (no closure)
+fun makeAdder() {
+  fun add(a, b) {
+    return a + b;
+  }
+  
+  return add;
+}
+
+var adder = makeAdder();
+print adder(5, 3); // Should print 8 

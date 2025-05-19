@@ -1,0 +1,12 @@
+// Simple function test without closures
+fun sayHello() {
+  print "Hello from function!";
+}
+
+sayHello();
+
+fun add(a, b) {
+  return a + b;
+}
+
+print add(3, 4); // Should print 7 

@@ -1,0 +1,10 @@
+// A simpler function return test
+fun makeGreeter() {
+  fun greet(name) {
+    print "Hello, " + name + "!";
+  }
+  return greet;
+}
+
+var greeter = makeGreeter();
+greeter("World"); // Should print "Hello, World!" 

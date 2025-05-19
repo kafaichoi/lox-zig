@@ -1,5 +1,6 @@
 const std = @import("std");
 const Value = @import("./expr.zig").Value;
+const ValueType = @import("./expr.zig").ValueType;
 
 pub const VarState = struct {
     value: Value,
@@ -9,11 +10,13 @@ pub const VarState = struct {
 pub const Environment = struct {
     variables: std.StringHashMap(VarState),
     enclosing: ?*Environment,
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator, enclosing: ?*Environment) Environment {
         return Environment{
             .variables = std.StringHashMap(VarState).init(allocator),
             .enclosing = enclosing,
+            .allocator = allocator,
         };
     }
 

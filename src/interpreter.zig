@@ -50,6 +50,12 @@ pub const Interpreter = struct {
         if (self.runtime_error) |*err| {
             self.allocator.free(err.message);
         }
+
+        // Clean up any return values
+        if (self.return_value) |*ret_val| {
+            ret_val.value.deinit();
+        }
+
         self.environment.deinit();
         self.allocator.destroy(self.environment);
     }
@@ -79,12 +85,15 @@ pub const Interpreter = struct {
     }
 
     fn execute_func_decl(self: *Interpreter, decl: *FuncDecl) !void {
+        // For closures, create a new function object that directly captures the current environment
         const function = FunctionObject.init(decl, self.environment);
+
+        // Define the function in the current environment
         try self.environment.define(decl.name, Value.init(.{ .callable = .{ .function = function } }, null));
     }
 
     fn execute_function(self: *Interpreter, function: FunctionObject, arguments: []Value) !Value {
-        // Create a new environment for the function call
+        // Create a new environment for the function call with the closure as parent
         var env = self.allocator.create(Environment) catch unreachable;
         env.* = Environment.init(self.allocator, function.closure);
 
