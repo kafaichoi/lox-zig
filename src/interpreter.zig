@@ -47,6 +47,7 @@ pub const Interpreter = struct {
     }
 
     pub fn deinit(self: *Interpreter) void {
+        // Clean up any error message
         if (self.runtime_error) |*err| {
             self.allocator.free(err.message);
         }
@@ -56,6 +57,7 @@ pub const Interpreter = struct {
             ret_val.value.deinit();
         }
 
+        // Clean up the global environment
         self.environment.deinit();
         self.allocator.destroy(self.environment);
     }
@@ -85,7 +87,7 @@ pub const Interpreter = struct {
     }
 
     fn execute_func_decl(self: *Interpreter, decl: *FuncDecl) !void {
-        // For closures, create a new function object that directly captures the current environment
+        // Capture the current environment for the closure
         const function = FunctionObject.init(decl, self.environment);
 
         // Define the function in the current environment
@@ -111,10 +113,13 @@ pub const Interpreter = struct {
         // Execute the function body
         const previous_env = self.environment;
         self.environment = env;
+
         defer {
             self.environment = previous_env;
-            env.deinit();
-            self.allocator.destroy(env);
+            // Note: We're deliberately NOT freeing the environment here
+            // to preserve it for closures. This is a memory leak, but it
+            // allows closures to work properly. In a real system, you'd
+            // want to implement proper garbage collection or reference counting.
         }
 
         // The function body is a block statement
@@ -573,6 +578,40 @@ pub const Interpreter = struct {
         const clock_native = NativeFunction.init(clock_fn, 0);
         const clock_callable = Callable{ .native = clock_native };
         self.environment.define("clock", Value.init(.{ .callable = clock_callable }, null)) catch unreachable;
+    }
+
+    // Debug helper to print details of an Environment
+    fn debugEnvironment(self: *Interpreter, env: *Environment, prefix: []const u8) void {
+        std.debug.print("{s} Env: {*}\n", .{ prefix, env });
+        if (env.enclosing) |enclosing| {
+            std.debug.print("{s} Enclosing: {*}\n", .{ prefix, enclosing });
+        } else {
+            std.debug.print("{s} No enclosing\n", .{prefix});
+        }
+
+        // Print some variables if available
+        _ = env.get("i"); // Try to get a variable for testing
+        _ = self; // To avoid unused parameter warning
+    }
+
+    // For debugging only
+    fn printEnvironments(self: *Interpreter) void {
+        std.debug.print("===== ENVIRONMENTS =====\n", .{});
+        var env_ptr: ?*Environment = self.environment;
+        var i: usize = 0;
+        while (env_ptr != null) : (i += 1) {
+            std.debug.print("Environment {d} at address {*}\n", .{ i, env_ptr });
+
+            // Print variables in this environment
+            var it = env_ptr.?.variables.iterator();
+            while (it.next()) |entry| {
+                std.debug.print("  Variable: {s}\n", .{entry.key_ptr.*});
+            }
+
+            // Go to next environment
+            env_ptr = env_ptr.?.enclosing;
+        }
+        std.debug.print("=======================\n", .{});
     }
 };
 
