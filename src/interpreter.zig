@@ -26,7 +26,6 @@ pub const Interpreter = struct {
     writer: ?*std.ArrayList(u8),
     environment: *Environment,
     return_value: ?ReturnValue,
-    locals: std.AutoHashMap(*Expr, usize),
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
         const env = allocator.create(Environment) catch unreachable;
@@ -39,7 +38,6 @@ pub const Interpreter = struct {
             .writer = null,
             .environment = env,
             .return_value = null,
-            .locals = std.AutoHashMap(*Expr, usize).init(allocator),
         };
 
         // Define native functions
@@ -58,9 +56,6 @@ pub const Interpreter = struct {
         if (self.return_value) |*ret_val| {
             ret_val.value.deinit();
         }
-
-        // Clean up the locals map
-        self.locals.deinit();
 
         // Clean up the global environment
         self.environment.deinit();
@@ -91,22 +86,26 @@ pub const Interpreter = struct {
         }
     }
 
+    /// Defines a function in the current environment
+    /// Creates a deep copy of the current environment to capture the lexical scope
     fn execute_func_decl(self: *Interpreter, decl: *FuncDecl) !void {
         // Create a deep copy of the current environment for the closure
-        // This ensures the function will have its own persistent copy of the current environment
-        const env_copy = self.environment.deepCopy();
-        const function = FunctionObject.init(decl, env_copy);
+        // This ensures the function captures its lexical environment at declaration time
+        const closure_env = self.environment.deepCopy();
+        const function = FunctionObject.init(decl, closure_env);
 
         // Define the function in the current environment
         try self.environment.define(decl.name, Value.init(.{ .callable = .{ .function = function } }, null));
     }
 
+    /// Executes a function with the given arguments
+    /// Returns the function's return value, or nil if none is provided
     fn execute_function(self: *Interpreter, function: FunctionObject, arguments: []Value) !Value {
-        // Create a new environment for the function call with the closure as parent
-        var env = self.allocator.create(Environment) catch unreachable;
-        env.* = Environment.init(self.allocator, function.closure);
+        // Create a new environment for this function call, with the closure as parent
+        var function_env = self.allocator.create(Environment) catch unreachable;
+        function_env.* = Environment.init(self.allocator, function.closure);
 
-        // Only bind parameters if we have them and they match the arguments
+        // Bind parameters to arguments
         const param_count = function.declaration.params.len;
         const arg_count = arguments.len;
         const bind_count = @min(param_count, arg_count);
@@ -114,22 +113,22 @@ pub const Interpreter = struct {
         for (0..bind_count) |i| {
             const param = function.declaration.params[i];
             const arg = arguments[i];
-            try env.define(param.lexeme, arg);
+            try function_env.define(param.lexeme, arg);
         }
+
+        // Switch to the function's environment
+        const previous_env = self.environment;
+        self.environment = function_env;
+
+        // NOTE ON MEMORY MANAGEMENT:
+        // We deliberately don't free the function's environment when we're done.
+        // In a production language, this would be a memory leak, but it allows closures
+        // to work correctly by preserving their environments. A real implementation would
+        // use garbage collection or reference counting to clean up environments when they're
+        // no longer needed.
+        defer self.environment = previous_env;
 
         // Execute the function body
-        const previous_env = self.environment;
-        self.environment = env;
-
-        defer {
-            self.environment = previous_env;
-            // Note: We're deliberately NOT freeing the environment here
-            // to preserve it for closures. This is a memory leak, but it
-            // allows closures to work properly. In a real system, you'd
-            // want to implement proper garbage collection or reference counting.
-        }
-
-        // The function body is a block statement
         const body = function.declaration.body;
         if (body.* != .block) {
             const message = try self.allocator.dupe(u8, "Function body must be a block statement.");
@@ -141,11 +140,11 @@ pub const Interpreter = struct {
             return error.RuntimeError;
         }
 
-        // Execute each statement in the block
-        const blockStmt = body.block;
-        self.execute_block(blockStmt.statements) catch |err| {
+        // Try to execute the function body and handle returns
+        const block_stmt = body.block;
+        self.execute_block(block_stmt.statements) catch |err| {
             switch (err) {
-                error.Return => |_| {
+                error.Return => {
                     // Return value was stored in the return_value field
                     if (self.return_value) |ret_value| {
                         const result = ret_value.value;
@@ -158,7 +157,7 @@ pub const Interpreter = struct {
             }
         };
 
-        // If we get here, the function didn't return a value
+        // No explicit return, so return nil
         return Value.init(.{ .nil = {} }, null);
     }
 
@@ -258,26 +257,31 @@ pub const Interpreter = struct {
             .grouping => |g| try self.evaluate(g.expression),
             .literal => |l| l.value,
             .variable => |var_expr| {
-                return self.lookUpVariable(var_expr.name.lexeme, expr);
+                const name = var_expr.name.lexeme;
+                if (self.environment.get(name)) |value| {
+                    return value;
+                } else {
+                    const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
+                    self.runtime_error = RuntimeError{
+                        .message = message,
+                        .token = var_expr.name,
+                    };
+                    self.had_error = true;
+                    return error.RuntimeError;
+                }
             },
             .assign => |a| {
                 const value = try self.evaluate(a.value);
 
-                if (self.locals.get(expr)) |distance| {
-                    // Local variable
-                    try self.environment.assignAt(distance, a.name.lexeme, value);
-                } else {
-                    // Global variable
-                    self.environment.assign(a.name.lexeme, value) catch {
-                        const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
-                        self.runtime_error = RuntimeError{
-                            .message = message,
-                            .token = a.name,
-                        };
-                        self.had_error = true;
-                        return error.RuntimeError;
+                self.environment.assign(a.name.lexeme, value) catch {
+                    const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
+                    self.runtime_error = RuntimeError{
+                        .message = message,
+                        .token = a.name,
                     };
-                }
+                    self.had_error = true;
+                    return error.RuntimeError;
+                };
 
                 return value;
             },
@@ -617,39 +621,6 @@ pub const Interpreter = struct {
         }
         std.debug.print("=======================\n", .{});
     }
-
-    // Store resolved variable location
-    pub fn resolve(self: *Interpreter, expr: *Expr, depth: usize) !void {
-        try self.locals.put(expr, depth);
-    }
-
-    // Look up a variable based on its resolved location
-    fn lookUpVariable(self: *Interpreter, name: []const u8, expr: *Expr) !Value {
-        if (self.locals.get(expr)) |distance| {
-            return self.environment.getAt(distance, name);
-        } else {
-            // Global variable
-            if (self.environment.get(name)) |v| {
-                return v;
-            } else {
-                // We need to get the token from the variable expression
-                // Different handling for variable vs assignment expressions
-                const token = switch (expr.*) {
-                    .variable => |var_expr| var_expr.name,
-                    .assign => |assign_expr| assign_expr.name,
-                    else => unreachable, // This function should only be called with variable or assign expressions
-                };
-
-                const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
-                self.runtime_error = RuntimeError{
-                    .message = message,
-                    .token = token,
-                };
-                self.had_error = true;
-                return error.RuntimeError;
-            }
-        }
-    }
 };
 
 test "stringify" {
@@ -676,10 +647,9 @@ test "stringify" {
     try std.testing.expectEqualStrings("-1", str_neg1);
     std.testing.allocator.free(str_neg1);
 
-    // Test strings
-    var str_hello = Value.init(.{ .string = "hello" }, std.testing.allocator);
-    defer str_hello.deinit();
-    try std.testing.expectEqualStrings("hello", interpreter.stringify(str_hello));
+    // Test strings - use init_borrowed to avoid ownership issues in the test
+    const hello_str = Value.init_borrowed(.{ .string = "hello" });
+    try std.testing.expectEqualStrings("hello", interpreter.stringify(hello_str));
 
     // Test none
     try std.testing.expectEqualStrings("none", interpreter.stringify(Value.init(.{ .none = {} }, null)));

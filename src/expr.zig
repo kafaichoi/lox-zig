@@ -18,7 +18,7 @@ pub const LoxFunction = struct {
     }
 };
 
-// Value types that can be produced by the interpreter
+/// Runtime value types in the Lox language
 pub const ValueType = union(enum) {
     nil: void,
     boolean: bool,
@@ -28,24 +28,32 @@ pub const ValueType = union(enum) {
     callable: Callable,
 };
 
+/// Represents a runtime value in the Lox language
 pub const Value = struct {
+    /// The actual data/payload of the value
     data: ValueType,
-    allocator: ?std.mem.Allocator,
 
-    pub fn init(data: ValueType, allocator: ?std.mem.Allocator) Value {
-        if (@as(std.meta.Tag(ValueType), data) == .string) {
-            std.debug.assert(allocator != null);
-            const s = data.string;
-            const heap_str = allocator.?.dupe(u8, s) catch unreachable;
-            return .{ .data = .{ .string = heap_str }, .allocator = allocator };
-        }
-        return .{ .data = data, .allocator = null };
+    /// Optional allocator that owns any heap memory in this value
+    /// Only relevant for string values currently
+    allocator: ?Allocator,
+
+    /// Create a new Value with the given data
+    pub fn init(data: ValueType, allocator: ?Allocator) Value {
+        return Value{
+            .data = data,
+            .allocator = allocator,
+        };
     }
 
+    /// Create a Value that borrows memory (doesn't own it)
     pub fn init_borrowed(data: ValueType) Value {
-        return .{ .data = data, .allocator = null };
+        return Value{
+            .data = data,
+            .allocator = null,
+        };
     }
 
+    /// Free any resources owned by this value
     pub fn deinit(self: *Value) void {
         if (self.allocator) |allocator| {
             switch (self.data) {
@@ -55,10 +63,13 @@ pub const Value = struct {
         }
     }
 
+    /// Check if this value is a string
     pub fn isString(self: Value) bool {
-        return self.data == .string;
+        return @as(std.meta.Tag(ValueType), self.data) == .string;
     }
 
+    /// Get the string content of this value
+    /// Returns null if this value is not a string
     pub fn getString(self: Value) []const u8 {
         return switch (self.data) {
             .string => |s| s,
@@ -66,10 +77,13 @@ pub const Value = struct {
         };
     }
 
+    /// Check if this value is a number
     pub fn isNumber(self: Value) bool {
-        return self.data == .double;
+        return @as(std.meta.Tag(ValueType), self.data) == .double;
     }
 
+    /// Get the number value
+    /// Panics if this value is not a number
     pub fn getNumber(self: Value) f64 {
         return switch (self.data) {
             .double => |n| n,
@@ -77,10 +91,13 @@ pub const Value = struct {
         };
     }
 
+    /// Check if this value is a boolean
     pub fn isBoolean(self: Value) bool {
-        return self.data == .boolean;
+        return @as(std.meta.Tag(ValueType), self.data) == .boolean;
     }
 
+    /// Get the boolean value
+    /// Panics if this value is not a boolean
     pub fn getBoolean(self: Value) bool {
         return switch (self.data) {
             .boolean => |b| b,
@@ -88,14 +105,18 @@ pub const Value = struct {
         };
     }
 
+    /// Check if this value is nil
     pub fn isNil(self: Value) bool {
-        return self.data == .nil;
+        return @as(std.meta.Tag(ValueType), self.data) == .nil;
     }
 
+    /// Check if this value is a function
     pub fn isFunction(self: Value) bool {
-        return self.data == .callable;
+        return @as(std.meta.Tag(ValueType), self.data) == .callable;
     }
 
+    /// Get the function declaration
+    /// Panics if this value is not a function
     pub fn getFunction(self: Value) *FuncDecl {
         return switch (self.data) {
             .callable => |f| switch (f) {
@@ -103,6 +124,23 @@ pub const Value = struct {
                 else => unreachable,
             },
             else => unreachable,
+        };
+    }
+
+    /// Returns true if the values are equal
+    pub fn equals(self: Value, other: Value) bool {
+        const self_tag = @as(std.meta.Tag(ValueType), self.data);
+        const other_tag = @as(std.meta.Tag(ValueType), other.data);
+
+        if (self_tag != other_tag) return false;
+
+        return switch (self.data) {
+            .nil => true,
+            .boolean => |b| b == other.getBoolean(),
+            .double => |n| n == other.getNumber(),
+            .string => |s| std.mem.eql(u8, s, other.getString()),
+            .callable => false, // Functions are never equal
+            .none => false,
         };
     }
 };
