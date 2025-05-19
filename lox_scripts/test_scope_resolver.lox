@@ -1,0 +1,6 @@
+fun bad() {
+  var a = "first";
+  var a = "second";
+}
+
+return "at top level";

@@ -54,10 +54,10 @@ fn run_repl(allocator: std.mem.Allocator) !void {
 
 fn run(allocator: std.mem.Allocator, source: []const u8) !void {
     var scanner = try Scanner.init(source);
-    const tokens = try scanner.scan_tokens();
-    defer tokens.deinit();
+    var tokens_list = try scanner.scan_tokens();
+    defer tokens_list.deinit();
 
-    var parser = Parser.init(tokens.items, allocator);
+    var parser = Parser.init(tokens_list.items, allocator);
     const declarations = parser.parse() catch {
         const stdout = std.io.getStdOut().writer();
         try stdout.print("Error parsing input.\n", .{});
@@ -70,8 +70,13 @@ fn run(allocator: std.mem.Allocator, source: []const u8) !void {
         allocator.free(declarations);
     }
 
+    if (parser.had_error) {
+        return;
+    }
+
     var interpreter = Interpreter.init(allocator);
     defer interpreter.deinit();
+
     interpreter.interpret(declarations) catch {
         if (interpreter.runtime_error) |err| {
             const stdout = std.io.getStdOut().writer();
@@ -106,6 +111,7 @@ test "simple test" {
     var interpreter = Interpreter.init(allocator);
     defer interpreter.deinit();
     interpreter.writer = &output_buffer;
+
     try interpreter.interpret(declarations);
 
     // Verify the output - check content without newline

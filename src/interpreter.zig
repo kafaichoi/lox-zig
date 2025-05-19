@@ -26,6 +26,7 @@ pub const Interpreter = struct {
     writer: ?*std.ArrayList(u8),
     environment: *Environment,
     return_value: ?ReturnValue,
+    locals: std.AutoHashMap(*Expr, usize),
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
         const env = allocator.create(Environment) catch unreachable;
@@ -38,6 +39,7 @@ pub const Interpreter = struct {
             .writer = null,
             .environment = env,
             .return_value = null,
+            .locals = std.AutoHashMap(*Expr, usize).init(allocator),
         };
 
         // Define native functions
@@ -56,6 +58,9 @@ pub const Interpreter = struct {
         if (self.return_value) |*ret_val| {
             ret_val.value.deinit();
         }
+
+        // Clean up the locals map
+        self.locals.deinit();
 
         // Clean up the global environment
         self.environment.deinit();
@@ -87,8 +92,10 @@ pub const Interpreter = struct {
     }
 
     fn execute_func_decl(self: *Interpreter, decl: *FuncDecl) !void {
-        // Capture the current environment for the closure
-        const function = FunctionObject.init(decl, self.environment);
+        // Create a deep copy of the current environment for the closure
+        // This ensures the function will have its own persistent copy of the current environment
+        const env_copy = self.environment.deepCopy();
+        const function = FunctionObject.init(decl, env_copy);
 
         // Define the function in the current environment
         try self.environment.define(decl.name, Value.init(.{ .callable = .{ .function = function } }, null));
@@ -251,30 +258,27 @@ pub const Interpreter = struct {
             .grouping => |g| try self.evaluate(g.expression),
             .literal => |l| l.value,
             .variable => |var_expr| {
-                const name = var_expr.name.lexeme;
-                if (self.environment.get(name)) |v| {
-                    return v;
-                } else {
-                    const message = try std.fmt.allocPrint(self.allocator, "Uninitialized variable '{s}'.", .{name});
-                    self.runtime_error = RuntimeError{
-                        .message = message,
-                        .token = var_expr.name,
-                    };
-                    self.had_error = true;
-                    return error.RuntimeError;
-                }
+                return self.lookUpVariable(var_expr.name.lexeme, expr);
             },
             .assign => |a| {
                 const value = try self.evaluate(a.value);
-                self.environment.assign(a.name.lexeme, value) catch {
-                    const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
-                    self.runtime_error = RuntimeError{
-                        .message = message,
-                        .token = a.name,
+
+                if (self.locals.get(expr)) |distance| {
+                    // Local variable
+                    try self.environment.assignAt(distance, a.name.lexeme, value);
+                } else {
+                    // Global variable
+                    self.environment.assign(a.name.lexeme, value) catch {
+                        const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{a.name.lexeme});
+                        self.runtime_error = RuntimeError{
+                            .message = message,
+                            .token = a.name,
+                        };
+                        self.had_error = true;
+                        return error.RuntimeError;
                     };
-                    self.had_error = true;
-                    return error.RuntimeError;
-                };
+                }
+
                 return value;
             },
             .logical => |l| try self.evaluate_logical(l),
@@ -613,6 +617,39 @@ pub const Interpreter = struct {
         }
         std.debug.print("=======================\n", .{});
     }
+
+    // Store resolved variable location
+    pub fn resolve(self: *Interpreter, expr: *Expr, depth: usize) !void {
+        try self.locals.put(expr, depth);
+    }
+
+    // Look up a variable based on its resolved location
+    fn lookUpVariable(self: *Interpreter, name: []const u8, expr: *Expr) !Value {
+        if (self.locals.get(expr)) |distance| {
+            return self.environment.getAt(distance, name);
+        } else {
+            // Global variable
+            if (self.environment.get(name)) |v| {
+                return v;
+            } else {
+                // We need to get the token from the variable expression
+                // Different handling for variable vs assignment expressions
+                const token = switch (expr.*) {
+                    .variable => |var_expr| var_expr.name,
+                    .assign => |assign_expr| assign_expr.name,
+                    else => unreachable, // This function should only be called with variable or assign expressions
+                };
+
+                const message = try std.fmt.allocPrint(self.allocator, "Undefined variable '{s}'.", .{name});
+                self.runtime_error = RuntimeError{
+                    .message = message,
+                    .token = token,
+                };
+                self.had_error = true;
+                return error.RuntimeError;
+            }
+        }
+    }
 };
 
 test "stringify" {
@@ -687,7 +724,7 @@ test "undefined variable error" {
     try std.testing.expect(interpreter.had_error);
     try std.testing.expect(interpreter.runtime_error != null);
     if (interpreter.runtime_error) |err| {
-        try std.testing.expectEqualStrings("Uninitialized variable 'undefined'.", err.message);
+        try std.testing.expectEqualStrings("Undefined variable 'undefined'.", err.message);
     }
 }
 

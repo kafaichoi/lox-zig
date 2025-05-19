@@ -1,0 +1,25 @@
+// Test nested closures with shared variables
+
+fun makeCounter() {
+  var i = 0;
+  
+  // This function returns another function (a closure)
+  fun makeAdder(n) {
+    fun adder() {
+      i = i + n;
+      return i;
+    }
+    return adder;
+  }
+  
+  // Return a function that returns adder functions
+  return makeAdder;
+}
+
+var adderMaker = makeCounter();
+var addOne = adderMaker(1);
+var addTen = adderMaker(10);
+
+print addOne();  // 1
+print addTen();  // 11 (they share the same i)
+print addOne();  // 12 

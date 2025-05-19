@@ -102,4 +102,41 @@ pub const Environment = struct {
             return false;
         }
     }
+
+    // Get variable from a specific ancestor environment
+    pub fn getAt(self: *Environment, distance: usize, name: []const u8) Value {
+        const environment = self.ancestor(distance);
+        if (environment.variables.get(name)) |state| {
+            if (!state.initialized) {
+                // This would be handled by the resolver, so would not occur here
+                return Value.init(.{ .nil = {} }, null);
+            }
+            return state.value;
+        } else {
+            // This should not happen if the resolver did its job
+            return Value.init(.{ .nil = {} }, null);
+        }
+    }
+
+    // Assign variable in a specific ancestor environment
+    pub fn assignAt(self: *Environment, distance: usize, name: []const u8, value: Value) !void {
+        const environment = self.ancestor(distance);
+        if (environment.variables.getPtr(name)) |state| {
+            state.value.deinit();
+            state.* = .{ .value = value, .initialized = true };
+        } else {
+            // This should not happen if the resolver did its job
+            return error.UndefinedVariable;
+        }
+    }
+
+    // Find an ancestor environment at a given distance
+    fn ancestor(self: *Environment, distance: usize) *Environment {
+        var environment: *Environment = self;
+        var i: usize = 0;
+        while (i < distance) : (i += 1) {
+            environment = environment.enclosing.?;
+        }
+        return environment;
+    }
 };
