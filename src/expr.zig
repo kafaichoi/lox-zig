@@ -1,6 +1,22 @@
 const std = @import("std");
 const Token = @import("./scanner.zig").Token;
 const Allocator = std.mem.Allocator;
+const FuncDecl = @import("./ast.zig").FuncDecl;
+const Environment = @import("./environment.zig").Environment;
+const Callable = @import("./callable.zig").Callable;
+
+// Runtime function representation
+pub const LoxFunction = struct {
+    declaration: *FuncDecl,
+    closure: *Environment,
+
+    pub fn init(declaration: *FuncDecl, closure: *Environment) LoxFunction {
+        return LoxFunction{
+            .declaration = declaration,
+            .closure = closure,
+        };
+    }
+};
 
 // Value types that can be produced by the interpreter
 pub const ValueType = union(enum) {
@@ -9,6 +25,7 @@ pub const ValueType = union(enum) {
     double: f64,
     string: []const u8,
     none: void,
+    callable: Callable,
 };
 
 pub const Value = struct {
@@ -74,6 +91,20 @@ pub const Value = struct {
     pub fn isNil(self: Value) bool {
         return self.data == .nil;
     }
+
+    pub fn isFunction(self: Value) bool {
+        return self.data == .callable;
+    }
+
+    pub fn getFunction(self: Value) *FuncDecl {
+        return switch (self.data) {
+            .callable => |f| switch (f) {
+                .function => |func| func.declaration,
+                else => unreachable,
+            },
+            else => unreachable,
+        };
+    }
 };
 
 // Base expression interface
@@ -85,6 +116,7 @@ pub const Expr = union(enum) {
     variable: *VariableExpr,
     assign: *AssignExpr,
     logical: *LogicalExpr,
+    call: *CallExpr,
 
     // Free memory recursively
     pub fn deinit(self: *Expr, allocator: Allocator) void {
@@ -117,6 +149,12 @@ pub const Expr = union(enum) {
                 l.left.deinit(allocator);
                 l.right.deinit(allocator);
                 allocator.destroy(l);
+            },
+            .call => |c| {
+                c.callee.deinit(allocator);
+                for (c.arguments) |arg| arg.deinit(allocator);
+                allocator.free(c.arguments);
+                allocator.destroy(c);
             },
         }
         allocator.destroy(self);
@@ -249,4 +287,37 @@ pub const Expr = union(enum) {
             return result;
         }
     };
+
+    // Call expression
+    pub const CallExpr = struct {
+        callee: *Expr,
+        paren: Token, // The closing parenthesis token
+        arguments: []*Expr,
+
+        // Create a new Call expression
+        pub fn create(allocator: Allocator, callee: *Expr, paren: Token, arguments: []*Expr) !*Expr {
+            const expr = try allocator.create(CallExpr);
+            expr.* = CallExpr{
+                .callee = callee,
+                .paren = paren,
+                .arguments = arguments,
+            };
+
+            const result = try allocator.create(Expr);
+            result.* = Expr{ .call = expr };
+            return result;
+        }
+    };
 };
+
+fn is_equal(a: Value, b: Value) bool {
+    if (@as(std.meta.Tag(ValueType), a.data) != @as(std.meta.Tag(ValueType), b.data)) return false;
+    return switch (a.data) {
+        .nil => true,
+        .boolean => |a_bool| a_bool == b.getBoolean(),
+        .double => |a_num| a_num == b.getNumber(),
+        .string => |a_str| std.mem.eql(u8, a_str, b.getString()),
+        .callable => |a_func| a_func.declaration == b.getFunction(),
+        .none => false,
+    };
+}

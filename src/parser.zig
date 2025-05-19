@@ -6,6 +6,7 @@ const Value = @import("./expr.zig").Value;
 const Stmt = @import("./ast.zig").Stmt;
 const Declaration = @import("./ast.zig").Declaration;
 const VarDecl = @import("./ast.zig").VarDecl;
+const FuncDecl = @import("./ast.zig").FuncDecl;
 const Allocator = std.mem.Allocator;
 
 // Parser error type
@@ -65,6 +66,10 @@ pub const Parser = struct {
             return self.var_declaration();
         }
 
+        if (self.match(&.{.FUN})) {
+            return self.func_declaration();
+        }
+
         const stmt = try self.statement();
         const decl = try self.allocator.create(Declaration);
         decl.* = Declaration{ .stmt = stmt };
@@ -81,6 +86,36 @@ pub const Parser = struct {
 
         _ = try self.consume(.SEMICOLON, "Expect ';' after variable declaration.");
         return try VarDecl.create(self.allocator, name.lexeme, initializer);
+    }
+
+    fn func_declaration(self: *Parser) ParserError!*Declaration {
+        const name = try self.consume(.IDENTIFIER, "Expect function name.");
+        _ = try self.consume(.LEFT_PAREN, "Expect '(' after function name.");
+
+        var params = std.ArrayList(Token).init(self.allocator);
+        defer params.deinit();
+
+        if (!self.check(.RIGHT_PARENS)) {
+            while (true) {
+                if (params.items.len >= 255) {
+                    return self.errorExpr("Can't have more than 255 parameters.");
+                }
+
+                const param = try self.consume(.IDENTIFIER, "Expect parameter name.");
+                try params.append(param);
+
+                if (!self.match(&.{.COMMA})) break;
+            }
+        }
+
+        _ = try self.consume(.RIGHT_PARENS, "Expect ')' after parameters.");
+        _ = try self.consume(.LEFT_BRACE, "Expect '{' before function body.");
+        const body = try self.block_statement();
+
+        // Create parameters slice
+        const params_slice = try self.allocator.dupe(Token, params.items);
+
+        return try FuncDecl.create(self.allocator, name.lexeme, params_slice, body);
     }
 
     fn statement(self: *Parser) ParserError!*Stmt {
@@ -105,6 +140,10 @@ pub const Parser = struct {
 
         if (self.match(&.{.BREAK})) {
             return self.break_statement();
+        }
+
+        if (self.match(&.{.RETURN})) {
+            return self.return_statement();
         }
 
         return self.expression_statement();
@@ -301,7 +340,39 @@ pub const Parser = struct {
             return try Expr.UnaryExpr.create(self.allocator, operator, right);
         }
 
-        return self.primary();
+        return try self.call();
+    }
+
+    fn call(self: *Parser) ParserError!*Expr {
+        var expr = try self.primary();
+
+        while (true) {
+            if (self.match(&.{.LEFT_PAREN})) {
+                expr = try self.finish_call(expr);
+            } else {
+                break;
+            }
+        }
+
+        return expr;
+    }
+
+    fn finish_call(self: *Parser, callee: *Expr) ParserError!*Expr {
+        var arguments = std.ArrayList(*Expr).init(self.allocator);
+        defer arguments.deinit();
+
+        if (!self.check(.RIGHT_PARENS)) {
+            while (true) {
+                const arg = try self.expression();
+                try arguments.append(arg);
+
+                if (!self.match(&.{.COMMA})) break;
+            }
+        }
+
+        const paren = try self.consume(.RIGHT_PARENS, "Expect ')' after arguments.");
+
+        return try Expr.CallExpr.create(self.allocator, callee, paren, try arguments.toOwnedSlice());
     }
 
     fn primary(self: *Parser) ParserError!*Expr {
@@ -430,6 +501,18 @@ pub const Parser = struct {
     fn break_statement(self: *Parser) ParserError!*Stmt {
         _ = try self.consume(.SEMICOLON, "Expect ';' after 'break'.");
         return try Stmt.BreakStmt.create(self.allocator);
+    }
+
+    fn return_statement(self: *Parser) ParserError!*Stmt {
+        const keyword = self.previous();
+
+        var value: ?*Expr = null;
+        if (!self.check(.SEMICOLON)) {
+            value = try self.expression();
+        }
+
+        _ = try self.consume(.SEMICOLON, "Expect ';' after return value.");
+        return try Stmt.ReturnStmt.create(self.allocator, keyword, value);
     }
 };
 

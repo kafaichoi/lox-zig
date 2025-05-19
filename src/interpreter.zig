@@ -4,11 +4,18 @@ const Value = @import("./expr.zig").Value;
 const Stmt = @import("./ast.zig").Stmt;
 const Declaration = @import("./ast.zig").Declaration;
 const VarDecl = @import("./ast.zig").VarDecl;
+const FuncDecl = @import("./ast.zig").FuncDecl;
 const Token = @import("./scanner.zig").Token;
 const TokenType = @import("./scanner.zig").TokenType;
 const ValueType = @import("./expr.zig").ValueType;
 const RuntimeError = @import("./error.zig").RuntimeError;
 const Environment = @import("./environment.zig").Environment;
+const FunctionObject = @import("./callable.zig").FunctionObject;
+const Callable = @import("./callable.zig").Callable;
+
+pub const ReturnValue = struct {
+    value: Value,
+};
 
 // Runtime error type
 pub const Interpreter = struct {
@@ -17,6 +24,7 @@ pub const Interpreter = struct {
     allocator: std.mem.Allocator,
     writer: ?*std.ArrayList(u8),
     environment: *Environment,
+    return_value: ?ReturnValue,
 
     pub fn init(allocator: std.mem.Allocator) Interpreter {
         const env = allocator.create(Environment) catch unreachable;
@@ -27,6 +35,7 @@ pub const Interpreter = struct {
             .allocator = allocator,
             .writer = null,
             .environment = env,
+            .return_value = null,
         };
     }
 
@@ -48,6 +57,7 @@ pub const Interpreter = struct {
         switch (decl.*) {
             .stmt => |stmt| try self.execute(stmt),
             .var_decl => |var_decl| try self.execute_var_decl(var_decl),
+            .func_decl => |func_decl| try self.execute_func_decl(func_decl),
         }
     }
 
@@ -58,6 +68,86 @@ pub const Interpreter = struct {
         } else {
             // Do not initialize the variable
             try self.environment.define_uninitialized(decl.name);
+        }
+    }
+
+    fn execute_func_decl(self: *Interpreter, decl: *FuncDecl) !void {
+        const function = FunctionObject.init(decl, self.environment);
+        try self.environment.define(decl.name, Value.init(.{ .callable = .{ .function = function } }, null));
+    }
+
+    fn execute_function(self: *Interpreter, function: FunctionObject, arguments: []Value) !Value {
+        // Create a new environment for the function call
+        var env = self.allocator.create(Environment) catch unreachable;
+        env.* = Environment.init(self.allocator, function.closure);
+
+        // Only bind parameters if we have them and they match the arguments
+        const param_count = function.declaration.params.len;
+        const arg_count = arguments.len;
+        const bind_count = @min(param_count, arg_count);
+
+        for (0..bind_count) |i| {
+            const param = function.declaration.params[i];
+            const arg = arguments[i];
+            try env.define(param.lexeme, arg);
+        }
+
+        // Execute the function body
+        const previous_env = self.environment;
+        self.environment = env;
+        defer {
+            self.environment = previous_env;
+            env.deinit();
+            self.allocator.destroy(env);
+        }
+
+        // The function body is a block statement
+        const body = function.declaration.body;
+        if (body.* != .block) {
+            const message = try self.allocator.dupe(u8, "Function body must be a block statement.");
+            self.runtime_error = RuntimeError{
+                .message = message,
+                .token = function.declaration.params[0],
+            };
+            self.had_error = true;
+            return error.RuntimeError;
+        }
+
+        // Execute each statement in the block
+        const blockStmt = body.block;
+        self.execute_block(blockStmt.statements) catch |err| {
+            switch (err) {
+                error.Return => |_| {
+                    // Return value was stored in the return_value field
+                    if (self.return_value) |ret_value| {
+                        const result = ret_value.value;
+                        self.return_value = null;
+                        return result;
+                    }
+                    return Value.init(.{ .nil = {} }, null);
+                },
+                else => return err,
+            }
+        };
+
+        // If we get here, the function didn't return a value
+        return Value.init(.{ .nil = {} }, null);
+    }
+
+    fn execute_block(self: *Interpreter, statements: []*Declaration) anyerror!void {
+        for (statements) |stmt| {
+            try self.execute_declaration(stmt);
+        }
+    }
+
+    fn call_function(self: *Interpreter, callable: Callable, arguments: []Value) !Value {
+        switch (callable) {
+            .function => |function| {
+                return self.execute_function(function, arguments);
+            },
+            .native => |native| {
+                return native.function(self.allocator, arguments);
+            },
         }
     }
 
@@ -93,7 +183,7 @@ pub const Interpreter = struct {
                 }
                 for (b.statements) |decl| {
                     self.execute_declaration(decl) catch |err| switch (err) {
-                        error.Break => return error.Break,
+                        error.Break, error.Return => return err,
                         else => return err,
                     };
                 }
@@ -111,12 +201,24 @@ pub const Interpreter = struct {
                 while (is_truthy(try self.evaluate(w.condition))) {
                     self.execute(w.body) catch |err| switch (err) {
                         error.Break => break,
+                        error.Return => return error.Return,
                         else => return err,
                     };
                 }
             },
             .break_stmt => |_| {
                 return error.Break;
+            },
+            .return_stmt => |r| {
+                var value = Value.init(.{ .nil = {} }, null);
+                if (r.value) |value_expr| {
+                    value = try self.evaluate(value_expr);
+                }
+
+                // Store the return value for retrieval in execute_function
+                self.return_value = ReturnValue{ .value = value };
+
+                return error.Return;
             },
         }
     }
@@ -155,6 +257,7 @@ pub const Interpreter = struct {
                 return value;
             },
             .logical => |l| try self.evaluate_logical(l),
+            .call => |call| try self.evaluate_call(call),
         };
     }
 
@@ -230,7 +333,6 @@ pub const Interpreter = struct {
                     .token = expr.operator,
                 };
                 self.had_error = true;
-                std.debug.print("Error: {s}\n[line {d}]\n", .{ self.runtime_error.?.message, expr.operator.line });
                 return error.RuntimeError;
             },
             .GREATER => {
@@ -357,6 +459,10 @@ pub const Interpreter = struct {
             .boolean => |a_bool| a_bool == b.getBoolean(),
             .double => |a_num| a_num == b.getNumber(),
             .string => |a_str| std.mem.eql(u8, a_str, b.getString()),
+            .callable => |a_func| switch (a_func) {
+                .function => |func| func.declaration == b.getFunction(),
+                .native => false, // Native functions are never equal to other functions
+            },
             .none => false,
         };
     }
@@ -370,6 +476,14 @@ pub const Interpreter = struct {
                 break :blk str;
             },
             .string => |s| s,
+            .callable => |f| blk: {
+                const name = switch (f) {
+                    .function => |func| func.declaration.name,
+                    .native => "native_function",
+                };
+                const str = std.fmt.allocPrint(self.allocator, "<fn {s}>", .{name}) catch "<function>";
+                break :blk str;
+            },
             .none => "none",
         };
     }
@@ -379,6 +493,54 @@ pub const Interpreter = struct {
             .string => |s| self.allocator.free(s),
             else => {},
         }
+    }
+
+    fn evaluate_call(self: *Interpreter, expr: *Expr.CallExpr) anyerror!Value {
+        // Evaluate the callee
+        var callee_value = try self.evaluate(expr.callee);
+        defer callee_value.deinit();
+
+        // Evaluate all arguments
+        var arguments = std.ArrayList(Value).init(self.allocator);
+        defer {
+            for (arguments.items) |*arg| {
+                arg.deinit();
+            }
+            arguments.deinit();
+        }
+
+        for (expr.arguments) |arg_expr| {
+            const arg_value = try self.evaluate(arg_expr);
+            try arguments.append(arg_value);
+        }
+
+        // Check if the callee is callable
+        if (!callee_value.isFunction()) {
+            const message = try self.allocator.dupe(u8, "Can only call functions and classes.");
+            self.runtime_error = RuntimeError{
+                .message = message,
+                .token = expr.paren,
+            };
+            self.had_error = true;
+            return error.RuntimeError;
+        }
+
+        // Get the callable
+        var callable = callee_value.data.callable;
+
+        // Check arity
+        if (arguments.items.len != callable.arity()) {
+            const message = try std.fmt.allocPrint(self.allocator, "Expected {d} arguments but got {d}.", .{ callable.arity(), arguments.items.len });
+            self.runtime_error = RuntimeError{
+                .message = message,
+                .token = expr.paren,
+            };
+            self.had_error = true;
+            return error.RuntimeError;
+        }
+
+        // Call the function
+        return self.call_function(callable, arguments.items);
     }
 };
 

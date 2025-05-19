@@ -1,6 +1,7 @@
 const std = @import("std");
 const Expr = @import("./expr.zig").Expr;
 const Allocator = std.mem.Allocator;
+const Token = @import("./scanner.zig").Token;
 
 pub const Stmt = union(enum) {
     print: *PrintStmt,
@@ -9,6 +10,7 @@ pub const Stmt = union(enum) {
     if_stmt: *IfStmt,
     while_stmt: *WhileStmt,
     break_stmt: *BreakStmt,
+    return_stmt: *ReturnStmt,
 
     pub fn deinit(self: *Stmt, allocator: Allocator) void {
         switch (self.*) {
@@ -27,6 +29,12 @@ pub const Stmt = union(enum) {
             .while_stmt => |w| w.deinit(allocator),
             .break_stmt => |b| {
                 allocator.destroy(b);
+            },
+            .return_stmt => |r| {
+                if (r.value) |value| {
+                    value.deinit(allocator);
+                }
+                allocator.destroy(r);
             },
         }
         allocator.destroy(self);
@@ -134,16 +142,34 @@ pub const Stmt = union(enum) {
             return result;
         }
     };
+
+    pub const ReturnStmt = struct {
+        keyword: Token,
+        value: ?*Expr,
+
+        pub fn create(allocator: Allocator, keyword: Token, value: ?*Expr) !*Stmt {
+            const stmt = try allocator.create(ReturnStmt);
+            stmt.* = .{
+                .keyword = keyword,
+                .value = value,
+            };
+            const result = try allocator.create(Stmt);
+            result.* = .{ .return_stmt = stmt };
+            return result;
+        }
+    };
 };
 
 pub const Declaration = union(enum) {
     stmt: *Stmt,
     var_decl: *VarDecl,
+    func_decl: *FuncDecl,
 
     pub fn deinit(self: *Declaration, allocator: Allocator) void {
         switch (self.*) {
             .stmt => |s| s.deinit(allocator),
             .var_decl => |v| v.deinit(allocator),
+            .func_decl => |f| f.deinit(allocator),
         }
         allocator.destroy(self);
     }
@@ -168,6 +194,30 @@ pub const VarDecl = struct {
         if (self.initializer) |init| {
             init.deinit(allocator);
         }
+        allocator.destroy(self);
+    }
+};
+
+pub const FuncDecl = struct {
+    name: []const u8,
+    params: []const Token,
+    body: *Stmt,
+
+    pub fn create(allocator: Allocator, name: []const u8, params: []const Token, body: *Stmt) !*Declaration {
+        const decl = try allocator.create(FuncDecl);
+        decl.* = .{
+            .name = name,
+            .params = params,
+            .body = body,
+        };
+        const result = try allocator.create(Declaration);
+        result.* = .{ .func_decl = decl };
+        return result;
+    }
+
+    pub fn deinit(self: *FuncDecl, allocator: Allocator) void {
+        self.body.deinit(allocator);
+        allocator.free(self.params);
         allocator.destroy(self);
     }
 };
