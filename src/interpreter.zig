@@ -12,6 +12,7 @@ const RuntimeError = @import("./error.zig").RuntimeError;
 const Environment = @import("./environment.zig").Environment;
 const FunctionObject = @import("./callable.zig").FunctionObject;
 const Callable = @import("./callable.zig").Callable;
+const NativeFunction = @import("./callable.zig").NativeFunction;
 
 pub const ReturnValue = struct {
     value: Value,
@@ -29,7 +30,8 @@ pub const Interpreter = struct {
     pub fn init(allocator: std.mem.Allocator) Interpreter {
         const env = allocator.create(Environment) catch unreachable;
         env.* = Environment.init(allocator, null);
-        return Interpreter{
+
+        var interpreter = Interpreter{
             .runtime_error = null,
             .had_error = false,
             .allocator = allocator,
@@ -37,6 +39,11 @@ pub const Interpreter = struct {
             .environment = env,
             .return_value = null,
         };
+
+        // Define native functions
+        interpreter.define_native_functions();
+
+        return interpreter;
     }
 
     pub fn deinit(self: *Interpreter) void {
@@ -541,6 +548,22 @@ pub const Interpreter = struct {
 
         // Call the function
         return self.call_function(callable, arguments.items);
+    }
+
+    // Define built-in native functions
+    fn define_native_functions(self: *Interpreter) void {
+        // clock() - Returns the current time in seconds
+        const clock_fn = struct {
+            fn clockFn(allocator: std.mem.Allocator, arguments: []Value) anyerror!Value {
+                _ = arguments; // Unused
+                const seconds = @as(f64, @floatFromInt(std.time.milliTimestamp())) / 1000.0;
+                return Value.init(.{ .double = seconds }, allocator);
+            }
+        }.clockFn;
+
+        const clock_native = NativeFunction.init(clock_fn, 0);
+        const clock_callable = Callable{ .native = clock_native };
+        self.environment.define("clock", Value.init(.{ .callable = clock_callable }, null)) catch unreachable;
     }
 };
 
